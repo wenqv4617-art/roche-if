@@ -27,6 +27,7 @@
     currentIfLineId: null, 
     selectedConvoIdForNew: null, 
     isGenerating: false, 
+    isGeneratingSummary: false, // 总结专属生成状态，用来弹窗遮罩
     showingDetails: false, 
 
     newIfForm: {
@@ -38,7 +39,6 @@
     detailsState: {
       sumFrom: 1,
       sumTo: 3,
-      summaryResult: "",
       worldbooks: [] 
     },
 
@@ -63,7 +63,11 @@
     try {
       const data = await currentRoche.storage.get("story_engine_data");
       if (data) {
-        state.activeIfLines = data.activeIfLines || [];
+        state.activeIfLines = (data.activeIfLines || []).map(line => {
+          // 确保 summaries 数组的存在
+          line.summaries = line.summaries || [];
+          return line;
+        });
         state.endedIfLines = data.endedIfLines || [];
         state.conversations = data.conversations || [];
       }
@@ -89,7 +93,7 @@
   function render() {
     if (!pluginContainer) return;
 
-    // 是否需要渲染外层的主菜单框架（页头、页脚Dock）
+    // 是否渲染全局外壳（页头和Dock脚栏）
     const showShell = !state.selectedConvoIdForNew && 
                       !(state.activeTab === "extend" && state.currentIfLineId) && 
                       !(state.activeTab === "backend" && state.viewingEndedLineId);
@@ -184,8 +188,42 @@
             `;
           }).join("");
 
+          // 渲染已有的历史总结层栈（支持展开、编辑编辑、删除）
+          const summariesListHtml = (currentIf.summaries || []).map((sum, index) => {
+            const isExpanded = sum.isExpanded;
+            return `
+              <div class="se-summary-item" data-id="${sum.id}">
+                <div class="se-summary-item-header">
+                  <div class="se-summary-item-title">#${index + 1} 总结（段落 ${sum.from} - ${sum.to}）</div>
+                  <div class="se-summary-item-actions">
+                    <button class="se-btn-text-sub btn-toggle-sum" data-id="${sum.id}">${isExpanded ? "收起" : "展开"}</button>
+                    <button class="se-btn-text-sub btn-delete-sum" data-id="${sum.id}">${SVGS.trash}</button>
+                  </div>
+                </div>
+                ${isExpanded ? `
+                  <div class="se-summary-item-body">
+                    <textarea class="se-summary-edit-area" data-id="${sum.id}">${sum.text}</textarea>
+                    <button class="se-btn-primary se-btn-small btn-save-sum" data-id="${sum.id}">保存编辑</button>
+                  </div>
+                ` : `
+                  <div class="se-summary-item-preview">${sum.text}</div>
+                `}
+              </div>
+            `;
+          }).join("");
+
           mainContentHtml = `
-            <div class="se-form-container">
+            <div class="se-form-container" style="position: relative;">
+              <!-- 总结专用生成遮罩提示 -->
+              ${state.isGeneratingSummary ? `
+                <div class="se-overlay">
+                  <div class="se-overlay-card">
+                    <div class="se-spinner"></div>
+                    <div>剧情深度提炼中...</div>
+                  </div>
+                </div>
+              ` : ""}
+
               <div class="se-form-header">
                 <button class="se-btn-icon" id="btn-close-details">${SVGS.arrowLeft}</button>
                 <div class="se-form-title">IF线详情配置与总结</div>
@@ -201,21 +239,22 @@
                 <div class="se-section-title">跨段总结 (第 M 至 N 段)</div>
                 <div class="se-form-row">
                   <div class="se-form-group">
-                    <label>起始序号</label>
+                    <label>起始段序号</label>
                     <input type="number" id="sum-from" value="${state.detailsState.sumFrom}" min="1" max="${currentIf.messages.length}" />
                   </div>
                   <div class="se-form-group">
-                    <label>结束序号</label>
+                    <label>结束段序号</label>
                     <input type="number" id="sum-to" value="${state.detailsState.sumTo}" min="1" max="${currentIf.messages.length}" />
                   </div>
                 </div>
                 <button class="se-btn-secondary" id="btn-gen-summary">生成选定区间总结</button>
-                ${state.detailsState.summaryResult ? `
-                  <div class="se-summary-box">
-                    <strong>总结结果:</strong>
-                    <p>${state.detailsState.summaryResult}</p>
-                  </div>
-                ` : ""}
+
+                <div class="se-divider"></div>
+
+                <div class="se-section-title">已生成的总结列表 (${currentIf.summaries ? currentIf.summaries.length : 0})</div>
+                <div class="se-summaries-stack">
+                  ${currentIf.summaries && currentIf.summaries.length > 0 ? summariesListHtml : `<div class="se-empty-sub">暂无提炼出的剧情总结，可在上方设定区间生成。</div>`}
+                </div>
 
                 <div class="se-divider"></div>
 
@@ -224,7 +263,6 @@
             </div>
           `;
         } else {
-          // 对话核心逻辑：处理用户输入即时上屏
           const msgListHtml = currentIf.messages.map((m, idx) => {
             if (m.mode === "offline") {
               const isUser = m.role === "user";
@@ -237,7 +275,7 @@
                 </div>
               `;
             } else {
-              // 微信高仿气泡布局
+              // 微信微信泡气泡
               const isUser = m.role === "user";
               const sideClass = isUser ? "se-bubble-right" : "se-bubble-left";
               const senderName = isUser ? "我" : currentIf.charName;
@@ -250,10 +288,7 @@
             }
           }).join("");
 
-          // 为微信风格特别切换包裹类名
           const chatViewportClass = currentIf.mode === "online" ? "se-chat-messages se-chat-viewport-wechat" : "se-chat-messages";
-
-          // 在头部的“状态文本”中集成“正在回复”字样以示过渡
           const middleTitle = state.isGenerating ? "对方回复中…" : `${currentIf.charName} (IF线)`;
 
           mainContentHtml = `
@@ -379,23 +414,19 @@
       }
     }
 
-    // 根据页面层级关系决定外壳组件的显隐
     if (showShell) {
       pluginContainer.innerHTML = `
         <div class="roche-plugin-story-engine">
-          <!-- 全局顶栏 -->
           <div class="se-header ${headerClass}">
             <div class="se-header-indicator"></div>
             <div class="se-header-text">${headerTitleText}</div>
             <button class="se-btn-icon" id="btn-close-app">${SVGS.close}</button>
           </div>
 
-          <!-- 渲染主页面 -->
           <div class="se-main">
             ${mainContentHtml}
           </div>
 
-          <!-- 底部 Dock 切换 -->
           <div class="se-dock">
             <button class="se-dock-item ${state.activeTab === "select" ? "active" : ""}" id="dock-tab-select">
               ${SVGS.select}
@@ -413,7 +444,6 @@
         </div>
       `;
     } else {
-      // 沉浸式子页面：无顶头大栏、无Dock底栏，空间使用率最大化
       pluginContainer.innerHTML = `
         <div class="roche-plugin-story-engine">
           <div class="se-main se-main-full">
@@ -454,7 +484,7 @@
   function bindAllEvents() {
     if (!pluginContainer || !currentRoche) return;
 
-    // --- 框架外壳层绑定 ---
+    // --- 框架外壳层 ---
     const btnCloseApp = pluginContainer.querySelector("#btn-close-app");
     if (btnCloseApp) {
       btnCloseApp.onclick = () => currentRoche.ui.closeApp();
@@ -463,7 +493,7 @@
     const tabSelect = pluginContainer.querySelector("#dock-tab-select");
     if (tabSelect) {
       tabSelect.onclick = () => {
-        if (state.isGenerating) return;
+        if (state.isGenerating || state.isGeneratingSummary) return;
         state.activeTab = "select";
         state.selectedConvoIdForNew = null;
         render();
@@ -472,7 +502,7 @@
     const tabExtend = pluginContainer.querySelector("#dock-tab-extend");
     if (tabExtend) {
       tabExtend.onclick = () => {
-        if (state.isGenerating) return;
+        if (state.isGenerating || state.isGeneratingSummary) return;
         state.activeTab = "extend";
         state.showingDetails = false;
         render();
@@ -481,7 +511,7 @@
     const tabBackend = pluginContainer.querySelector("#dock-tab-backend");
     if (tabBackend) {
       tabBackend.onclick = () => {
-        if (state.isGenerating) return;
+        if (state.isGenerating || state.isGeneratingSummary) return;
         state.activeTab = "backend";
         state.viewingEndedLineId = null;
         render();
@@ -534,7 +564,6 @@
           const factsText = (memories?.facts || []).map(f => f.summaryText || f.action || "").join("\n");
           const backgroundContext = `${coreText}\n${factsText}`;
 
-          // 初始化 Prompt：加入强烈的“禁止替用户行动/对话描述”禁令约束
           const systemPrompt = `你是一个平行宇宙剧情出线启动器。
 正在为角色 [${charName}] 和 用户 开启一个新的剧情分支：
 【时间基准】：${timeVal}
@@ -546,7 +575,7 @@ ${backgroundContext}
 
 请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
 【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
-要求：文笔唯美细腻，不要包含旁白与多余说明，直接开始正文描写，字数在400字左右。`;
+要求：文笔唯美细腻，直接开始正文描写，不要输出任何旁白，字数在400字左右。`;
 
           const response = await currentRoche.ai.chat({
             messages: [
@@ -574,7 +603,8 @@ ${backgroundContext}
                 timestamp: Date.now()
               }
             ],
-            mountedWorldbooks: []
+            mountedWorldbooks: [],
+            summaries: [] // 序列初始化 summaries
           };
 
           state.activeIfLines.push(newIfLine);
@@ -632,7 +662,6 @@ ${backgroundContext}
       };
     }
 
-    // 键盘支持：回车键直接发送
     const chatInput = pluginContainer.querySelector("#chat-input");
     if (chatInput) {
       chatInput.onkeydown = (e) => {
@@ -644,7 +673,6 @@ ${backgroundContext}
       };
     }
 
-    // 点击发送输入：文本即时上屏，并重新 render
     const btnSendMsg = pluginContainer.querySelector("#btn-send-msg");
     if (btnSendMsg) {
       btnSendMsg.onclick = async () => {
@@ -662,7 +690,7 @@ ${backgroundContext}
 
         inputEl.value = "";
         await savePluginState();
-        render(); // 输入上屏重新渲染
+        render(); 
       };
     }
 
@@ -687,7 +715,7 @@ ${backgroundContext}
           let systemPrompt = "";
           if (currentIf.mode === "online") {
             systemPrompt = `你现在进入角色扮演模式。你将扮演角色: ${currentIf.charName}。
-这是一个正在演进中的 IF 剧情分支出线。
+这是一个正在演进中的微信聊天（线上）平行宇宙剧情分支出线。
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
 【额外强制指令】：${currentIf.extra}
@@ -695,12 +723,18 @@ ${backgroundContext}
 【挂载的世界书世界观设定】：
 ${wbCombined}
 
-【剧情与对话往期历史】：
+【微信聊天对话往期历史】：
 ${historyText}
 
-请在当前“线上对话”模式下，以【第一人称】口吻撰写你作为角色 ${currentIf.charName} 此时此刻最符合人设的对话回复。直接输出角色的台词话语，严禁夹带任何旁白描写或代答。`;
+请在当前【线上对话场景】下，以【第一人称微信口吻】进行回复。
+【多气泡简短连发机制】：
+请务必模仿现代人聊天连发多条短消息的习惯，你必须一次性产生并发送【至少3条】连续发出的简短气泡消息。
+这3条消息必须用特殊的标记字符 "[SPLIT]" 将它们隔开。
+例如输出规范：
+第一条问候或直接短句。[SPLIT]第二条进行追问或表达微表情。[SPLIT]第三条做细节补充或提出互动。
+
+严禁合并成大段话！直接输出用 [SPLIT] 隔开的至少3条短句台词，绝不包含任何旁白、叙事或释义说明。`;
           } else {
-            // 线下 Prompt：强化禁止越权控制和自由反应限制
             systemPrompt = `你是一个高级的小说剧情续写引擎。正在为角色 ${currentIf.charName} 与用户共同编写分支剧情。
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
@@ -727,12 +761,42 @@ ${historyText}
 
           const replyText = response.text || "AI 续写引擎发生阻断，未返回有效信息。";
 
-          currentIf.messages.push({
-            role: "assistant",
-            text: replyText,
-            mode: currentIf.mode,
-            timestamp: Date.now()
-          });
+          // 多气泡上屏渲染分流解析
+          if (currentIf.mode === "online") {
+            let parts = replyText.split(/\[SPLIT\]/);
+            // 兜底策略：如果 AI 未正常按照 [SPLIT] 分割，则利用分段拆分成多气泡
+            if (parts.length <= 1) {
+              parts = replyText.split(/\n+/).filter(Boolean);
+            }
+            parts.forEach(part => {
+              const trimmed = part.trim();
+              if (trimmed) {
+                currentIf.messages.push({
+                  role: "assistant",
+                  text: trimmed,
+                  mode: "online",
+                  timestamp: Date.now()
+                });
+              }
+            });
+            // 彻底兜底保证至少一条
+            if (currentIf.messages.length > 0 && currentIf.messages[currentIf.messages.length - 1].role === "user") {
+              currentIf.messages.push({
+                role: "assistant",
+                text: replyText,
+                mode: "online",
+                timestamp: Date.now()
+              });
+            }
+          } else {
+            // 线下直接压入
+            currentIf.messages.push({
+              role: "assistant",
+              text: replyText,
+              mode: "offline",
+              timestamp: Date.now()
+            });
+          }
 
           await savePluginState();
         } catch (e) {
@@ -756,7 +820,6 @@ ${historyText}
           console.error(e);
         }
         state.showingDetails = true;
-        state.detailsState.summaryResult = "";
         render();
       };
     }
@@ -783,6 +846,7 @@ ${historyText}
       };
     });
 
+    // 生成段落区间总结（具有 Loading 覆盖与堆栈管理）
     const btnGenSummary = pluginContainer.querySelector("#btn-gen-summary");
     if (btnGenSummary) {
       btnGenSummary.onclick = async () => {
@@ -797,7 +861,7 @@ ${historyText}
           return;
         }
 
-        state.isGenerating = true;
+        state.isGeneratingSummary = true; // 开启生成状态
         render();
 
         try {
@@ -811,24 +875,88 @@ ${historyText}
             messages: [
               {
                 role: "system",
-                content: `请对以下指定区间的剧情记录进行精简、连贯生动的概要总结（150字左右），注意不漏掉关键的人物情感和事件转变：\n\n${segmentText}`
+                content: `请对以下指定区间的剧情记录进行高度精简、连贯生动的概要总结（150字左右），注意不漏掉关键的人物情感和事件转变：\n\n${segmentText}`
               }
             ],
             temperature: 0.7
           });
 
-          state.detailsState.sumFrom = fromVal;
-          state.detailsState.sumTo = toVal;
-          state.detailsState.summaryResult = response.text || "总结生成失败";
+          const resText = response.text || "总结生成失败";
+
+          currentIf.summaries = currentIf.summaries || [];
+          currentIf.summaries.push({
+            id: "sum-" + crypto.randomUUID(),
+            from: fromVal,
+            to: toVal,
+            text: resText,
+            timestamp: Date.now(),
+            isExpanded: false
+          });
+
+          await savePluginState();
+          currentRoche.ui.toast("跨段总结生成成功并入库");
         } catch (e) {
           console.error(e);
           currentRoche.ui.toast("总结获取失败");
         } finally {
-          state.isGenerating = false;
+          state.isGeneratingSummary = false;
           render();
         }
       };
     }
+
+    // 总结展开与折叠
+    pluginContainer.querySelectorAll(".btn-toggle-sum").forEach(btn => {
+      btn.onclick = async () => {
+        const sumId = btn.getAttribute("data-id");
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        const sum = currentIf.summaries.find(s => s.id === sumId);
+        if (sum) {
+          sum.isExpanded = !sum.isExpanded;
+          await savePluginState();
+          render();
+        }
+      };
+    });
+
+    // 总结编辑编辑并保存
+    pluginContainer.querySelectorAll(".btn-save-sum").forEach(btn => {
+      btn.onclick = async () => {
+        const sumId = btn.getAttribute("data-id");
+        const textarea = pluginContainer.querySelector(`.se-summary-edit-area[data-id="${sumId}"]`);
+        if (!textarea) return;
+
+        const textVal = textarea.value.trim();
+        if (!textVal) {
+          currentRoche.ui.toast("总结内容不能为空");
+          return;
+        }
+
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        const sum = currentIf.summaries.find(s => s.id === sumId);
+        if (sum) {
+          sum.text = textVal;
+          sum.isExpanded = false; // 保存后折叠
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("编辑保存成功");
+        }
+      };
+    });
+
+    // 删除单条总结
+    pluginContainer.querySelectorAll(".btn-delete-sum").forEach(btn => {
+      btn.onclick = async () => {
+        const sumId = btn.getAttribute("data-id");
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        if (currentIf) {
+          currentIf.summaries = currentIf.summaries.filter(s => s.id !== sumId);
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("已删除该总结");
+        }
+      };
+    });
 
     const btnEndIf = pluginContainer.querySelector("#btn-end-if");
     if (btnEndIf) {
@@ -937,7 +1065,7 @@ ${fullHistory}`
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.2",
+    version: "1.0.3",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -948,7 +1076,7 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态注入全新轻盈且适应高长宽视口的护眼样式表
+          // 1. 动态注入全新轻盈护眼与总结层栈样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
@@ -1018,6 +1146,44 @@ ${fullHistory}`
                 height: 100% !important;
                 display: flex;
                 flex-direction: column;
+              }
+
+              /* 绝对定位磨砂玻璃遮罩层 */
+              .se-overlay {
+                position: absolute;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background-color: rgba(255, 255, 255, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+                backdrop-filter: blur(1.5px);
+                border-radius: 8px;
+              }
+              .se-overlay-card {
+                background-color: var(--se-surface);
+                border: 1px solid var(--se-border);
+                padding: 24px;
+                border-radius: 12px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+                font-weight: 600;
+                color: var(--se-primary);
+                font-size: 14px;
+              }
+              .se-spinner {
+                width: 32px;
+                height: 32px;
+                border: 3px solid var(--se-border);
+                border-top-color: var(--se-primary);
+                border-radius: 50%;
+                animation: se-spin 0.8s infinite linear;
+              }
+              @keyframes se-spin {
+                100% { transform: rotate(360deg); }
               }
 
               /* 简约面板 */
@@ -1120,13 +1286,14 @@ ${fullHistory}`
                 line-height: 1.4;
               }
 
-              /* 表单框架自适应（无外页头时的贴边内衬） */
+              /* 表单框架 */
               .se-form-container {
                 display: flex;
                 flex-direction: column;
                 height: 100%;
                 padding: 16px;
                 background-color: var(--se-bg);
+                overflow-y: auto;
               }
               .se-form-header {
                 display: flex;
@@ -1165,6 +1332,13 @@ ${fullHistory}`
               .se-form-group input:focus, .se-form-group select:focus, .se-form-group textarea:focus {
                 border-color: var(--se-primary);
                 background-color: #fff;
+              }
+              .se-form-row {
+                display: flex;
+                gap: 12px;
+              }
+              .se-form-row .se-form-group {
+                flex: 1;
               }
 
               /* 交互聊天室 */
@@ -1215,7 +1389,6 @@ ${fullHistory}`
                 box-shadow: 0 1px 2px rgba(0,0,0,0.05);
               }
 
-              /* 聊天滚动容器 */
               .se-chat-messages {
                 flex: 1;
                 overflow-y: auto;
@@ -1225,9 +1398,9 @@ ${fullHistory}`
                 padding: 16px;
               }
 
-              /* 线上：仿微信极简对讲风格（干净、温润、无多余投影） */
+              /* 线上：仿微信极简对讲风格 */
               .se-chat-viewport-wechat {
-                background-color: #ededed !important; /* 经典微信浅灰 */
+                background-color: #ededed !important; 
               }
               .se-bubble-wrapper {
                 display: flex;
@@ -1264,12 +1437,12 @@ ${fullHistory}`
                 border: 1px solid #e1e1e1;
               }
               .se-bubble-right .se-bubble-box {
-                background-color: #95ec69; /* 微信绿 */
+                background-color: #95ec69; 
                 color: #191919;
                 border: 1px solid #83d45a;
               }
 
-              /* 线下：原厂叙事文学样式 */
+              /* 线下：叙事体 */
               .se-narrative-block {
                 padding: 16px;
                 background-color: #f1f5f9;
@@ -1291,7 +1464,7 @@ ${fullHistory}`
                 letter-spacing: 0.5px;
               }
 
-              /* 线下：用户大纲行动指引框样式 */
+              /* 线下：指令框 */
               .se-narrative-block-user {
                 padding: 14px 16px;
                 background-color: #f8fafc;
@@ -1313,7 +1486,64 @@ ${fullHistory}`
                 font-style: italic;
               }
 
-              /* 底部输入框 */
+              /* 跨段总结层栈堆叠 */
+              .se-summaries-stack {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                margin-top: 8px;
+              }
+              .se-summary-item {
+                border: 1px solid var(--se-border);
+                border-radius: 8px;
+                background-color: var(--se-surface);
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              }
+              .se-summary-item-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              }
+              .se-summary-item-title {
+                font-size: 13px;
+                font-weight: 700;
+                color: var(--se-primary);
+              }
+              .se-summary-item-actions {
+                display: flex;
+                gap: 8px;
+              }
+              .se-summary-item-preview {
+                font-size: 13px;
+                color: var(--se-text-muted);
+                line-height: 1.4;
+              }
+              .se-summary-item-body {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+              }
+              .se-summary-edit-area {
+                width: 100%;
+                min-height: 80px;
+                border: 1px solid var(--se-border);
+                border-radius: 6px;
+                padding: 8px;
+                font-size: 13px;
+                background-color: var(--se-bg);
+                color: var(--se-text);
+                resize: vertical;
+                outline: none;
+              }
+              .se-summary-edit-area:focus {
+                border-color: var(--se-primary);
+                background-color: #fff;
+              }
+
+              /* 底部输入 */
               .se-chat-footer {
                 display: flex;
                 flex-direction: column;
@@ -1341,7 +1571,7 @@ ${fullHistory}`
                 gap: 8px;
               }
 
-              /* 极简基础按钮 */
+              /* 按钮 */
               .se-btn-primary, .se-btn-secondary, .se-btn-danger {
                 padding: 10px 16px;
                 font-size: 13px;
@@ -1364,6 +1594,9 @@ ${fullHistory}`
               .se-btn-icon:hover { color: var(--se-text); }
               .se-btn-text { background: none; border: none; color: var(--se-primary); cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
               .se-btn-text:hover { opacity: 0.8; }
+              .se-btn-text-sub { background: none; border: none; color: var(--se-text-muted); cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 2px; }
+              .se-btn-text-sub:hover { color: var(--se-text); }
+              .se-btn-small { padding: 6px 12px; font-size: 11px; align-self: flex-end; }
               button:disabled { opacity: 0.5 !important; cursor: not-allowed !important; }
 
               /* 世界书多选 */
@@ -1389,7 +1622,7 @@ ${fullHistory}`
               .se-divider { height: 1px; background-color: var(--se-border); margin: 8px 0; }
               .se-summary-box { background-color: #fef3c7; border: 1px dashed #f59e0b; padding: 12px; border-radius: 6px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; color: #78350f; }
 
-              /* 归档查看 */
+              /* 归档 */
               .se-log-box { display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; border: 1px solid var(--se-border); padding: 10px; border-radius: 6px; background-color: #fff; }
               .se-log-item { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--se-border); padding-bottom: 8px; }
               .se-log-meta { font-size: 11px; color: var(--se-primary); font-weight: 600; }
@@ -1399,7 +1632,7 @@ ${fullHistory}`
               .se-empty { padding: 40px 16px; text-align: center; color: var(--se-text-muted); font-size: 13px; border: 1px dashed var(--se-border); border-radius: 8px; background: #fff; }
               .se-empty-sub { text-align: center; color: var(--se-text-muted); font-size: 12px; padding: 12px 0; }
 
-              /* 全局底部 DOCK 栏 */
+              /* 底部 DOCK */
               .se-dock {
                 height: 60px;
                 border-top: 1px solid var(--se-border);
