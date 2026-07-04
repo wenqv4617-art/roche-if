@@ -1,0 +1,20 @@
+{
+  "id": "roche-story-engine",
+  "name": "剧情引擎",
+  "version": "1.0.0",
+  "description": "基于 Roche 对话上下文，为角色与用户开启多分支的 IF 平行宇宙。支持线上对话、线下长文本叙事与记忆沉淀。",
+  "author": "wenqv4617-art",
+  "entry": "https://raw.githubusercontent.com/wenqv4617-art/roche-if/main/plugin.js",
+  "hash": "",
+  "permissions": [
+    "persona:read",
+    "character:read",
+    "conversation:read",
+    "memory:read",
+    "memory:write",
+    "worldbook:read",
+    "ai:chat",
+    "storage",
+    "ui"
+  ]
+}
