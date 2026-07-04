@@ -27,8 +27,12 @@
     currentIfLineId: null, 
     selectedConvoIdForNew: null, 
     isGenerating: false, 
-    isGeneratingSummary: false, // 总结专属生成状态，用来弹窗遮罩
+    isGeneratingSummary: false, 
     showingDetails: false, 
+
+    // 双击操作状态
+    activeMenuMessageIndex: null, 
+    isEditingMessage: false,       
 
     newIfForm: {
       time: "当下",
@@ -64,7 +68,6 @@
       const data = await currentRoche.storage.get("story_engine_data");
       if (data) {
         state.activeIfLines = (data.activeIfLines || []).map(line => {
-          // 确保 summaries 数组的存在
           line.summaries = line.summaries || [];
           return line;
         });
@@ -93,7 +96,6 @@
   function render() {
     if (!pluginContainer) return;
 
-    // 是否渲染全局外壳（页头和Dock脚栏）
     const showShell = !state.selectedConvoIdForNew && 
                       !(state.activeTab === "extend" && state.currentIfLineId) && 
                       !(state.activeTab === "backend" && state.viewingEndedLineId);
@@ -188,7 +190,6 @@
             `;
           }).join("");
 
-          // 渲染已有的历史总结层栈（支持展开、编辑编辑、删除）
           const summariesListHtml = (currentIf.summaries || []).map((sum, index) => {
             const isExpanded = sum.isExpanded;
             return `
@@ -214,7 +215,7 @@
 
           mainContentHtml = `
             <div class="se-form-container" style="position: relative;">
-              <!-- 总结专用生成遮罩提示 -->
+              <!-- 总结专用生成遮罩 -->
               ${state.isGeneratingSummary ? `
                 <div class="se-overlay">
                   <div class="se-overlay-card">
@@ -258,6 +259,33 @@
 
                 <div class="se-divider"></div>
 
+                <!-- 时空锚点时空快照可视化 -->
+                <div class="se-section-title">时空记忆快照 (锁定于开启节点)</div>
+                <div class="se-panel-desc">本分支与主线脱钩，锁定在创建时该分支所获取的主线人设与记忆。</div>
+                <div class="se-snapshot-visualizer">
+                  <div class="se-snapshot-item-block">
+                    <div class="se-snapshot-sub-title">主线冻结人设</div>
+                    <div class="se-snapshot-sub-body">${currentIf.snapshot?.charPersona || "无冻结人设记录"}</div>
+                  </div>
+                  <div class="se-snapshot-item-block">
+                    <div class="se-snapshot-sub-title">用户冻结特质</div>
+                    <div class="se-snapshot-sub-body">${currentIf.snapshot?.userPersona || "无冻结特质记录"}</div>
+                  </div>
+                  <div class="se-snapshot-item-block">
+                    <div class="se-snapshot-sub-title">时空锚点主线记忆事实</div>
+                    <div class="se-snapshot-sub-body">
+                      <strong>核心主线摘要:</strong> ${currentIf.snapshot?.coreMemory || "无"}<br>
+                      <strong>事实列表:</strong><br>${(currentIf.snapshot?.factsList || "").replace(/\n/g, "<br>")}
+                    </div>
+                  </div>
+                  <div class="se-snapshot-item-block">
+                    <div class="se-snapshot-sub-title">时空点对话历史</div>
+                    <div class="se-snapshot-sub-body">${(currentIf.snapshot?.mainConvoContext || "").replace(/\n/g, "<br>")}</div>
+                  </div>
+                </div>
+
+                <div class="se-divider"></div>
+
                 <button class="se-btn-danger" id="btn-end-if">结束此 IF 线</button>
               </div>
             </div>
@@ -269,19 +297,19 @@
               const label = isUser ? "你的行动/指令" : "剧情续写叙事";
               const blockClass = isUser ? "se-narrative-block-user" : "se-narrative-block";
               return `
-                <div class="${blockClass}">
-                  <div class="se-narrative-meta">#${idx + 1} ${label}</div>
+                <div class="${blockClass} se-message-block" data-idx="${idx}">
+                  <div class="se-narrative-meta">#${idx + 1} ${label} (双击操作)</div>
                   <div class="se-narrative-text">${m.text.replace(/\n/g, "<br>")}</div>
                 </div>
               `;
             } else {
-              // 微信微信泡气泡
+              // 微信微信泡
               const isUser = m.role === "user";
               const sideClass = isUser ? "se-bubble-right" : "se-bubble-left";
               const senderName = isUser ? "我" : currentIf.charName;
               return `
-                <div class="se-bubble-wrapper ${sideClass}">
-                  <div class="se-bubble-sender">${senderName} <span class="se-bubble-num">#${idx + 1}</span></div>
+                <div class="se-bubble-wrapper ${sideClass} se-message-block" data-idx="${idx}">
+                  <div class="se-bubble-sender">${senderName} <span class="se-bubble-num">#${idx + 1} (双击操作)</span></div>
                   <div class="se-bubble-box">${m.text.replace(/\n/g, "<br>")}</div>
                 </div>
               `;
@@ -292,7 +320,32 @@
           const middleTitle = state.isGenerating ? "对方回复中…" : `${currentIf.charName} (IF线)`;
 
           mainContentHtml = `
-            <div class="se-chat-container">
+            <div class="se-chat-container" style="position: relative;">
+              <!-- 消息操作高级浮动弹窗 -->
+              ${state.activeMenuMessageIndex !== null ? `
+                <div class="se-overlay">
+                  <div class="se-overlay-card se-context-menu-card">
+                    <div class="se-context-menu-title">消息 #${state.activeMenuMessageIndex + 1} 操作</div>
+                    <div class="se-context-menu-preview">"${currentIf.messages[state.activeMenuMessageIndex]?.text.substring(0, 50)}..."</div>
+                    
+                    ${state.isEditingMessage ? `
+                      <textarea class="se-summary-edit-area" id="edit-msg-text-area" rows="4">${currentIf.messages[state.activeMenuMessageIndex]?.text}</textarea>
+                      <div class="se-context-menu-row">
+                        <button class="se-btn-secondary" id="btn-cancel-edit-msg" style="flex: 1;">返回</button>
+                        <button class="se-btn-primary" id="btn-save-edit-msg" style="flex: 1;">保存</button>
+                      </div>
+                    ` : `
+                      <div class="se-context-menu-options">
+                        <button class="se-btn-secondary btn-menu-action" id="btn-menu-edit">编辑消息</button>
+                        <button class="se-btn-secondary btn-menu-action" id="btn-menu-rollback" style="color: var(--se-primary);">重回 (从此条回滚)</button>
+                        <button class="se-btn-secondary btn-menu-action" id="btn-menu-delete" style="color: var(--se-danger);">删除消息</button>
+                        <button class="se-btn-secondary btn-menu-action" id="btn-menu-cancel" style="margin-top: 8px;">取消</button>
+                      </div>
+                    `}
+                  </div>
+                </div>
+              ` : ""}
+
               <div class="se-chat-header">
                 <button class="se-btn-icon" id="btn-back-to-ifs">${SVGS.arrowLeft}</button>
                 <div class="se-chat-title-wrapper">
@@ -552,26 +605,95 @@
         render();
 
         try {
-          const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
+          const convoId = state.selectedConvoIdForNew;
+          const convo = state.conversations.find(c => c.id === convoId);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          const memories = await currentRoche.memory.getLongTerm({
-            conversationId: state.selectedConvoIdForNew,
-            limit: 40
-          });
+          // ==================== 冻结快照采集 (时空锚点1固化开始) ====================
+          // 1. 获取主线角色人设 (Persona/Bio)
+          let charPersona = "";
+          let charBio = "";
+          try {
+            if (convo && convo.contactId) {
+              const char = await currentRoche.character.get(convo.contactId);
+              if (char) {
+                charPersona = char.persona || "";
+                charBio = char.bio || "";
+              }
+            }
+          } catch (e) {
+            console.error("Failed to fetch character details during snapshot:", e);
+          }
+          const finalCharPersona = charPersona || charBio || "保持其一贯性格特点。";
 
-          const coreText = memories?.core?.summary || "";
-          const factsText = (memories?.facts || []).map(f => f.summaryText || f.action || "").join("\n");
-          const backgroundContext = `${coreText}\n${factsText}`;
+          // 2. 获取主线用户人设
+          let userPersona = "";
+          try {
+            const activeUser = await currentRoche.persona.getActiveUserPersona();
+            if (activeUser) {
+              userPersona = activeUser.persona || activeUser.bio || "";
+            }
+          } catch (e) {
+            console.error("Failed to fetch user persona during snapshot:", e);
+          }
 
+          // 3. 获取主线长存长期记忆
+          let coreMemory = "无核心记忆总结";
+          let factsListText = "无主线主记忆 facts 事实";
+          try {
+            const lt = await currentRoche.memory.getLongTerm({ conversationId: convoId, limit: 30 });
+            if (lt) {
+              coreMemory = lt.core?.summary || "";
+              factsListText = (lt.facts || []).map(f => f.summaryText || f.action || "").filter(Boolean).join("\n");
+            }
+          } catch (e) {
+            console.error("Failed to fetch long-term memories during snapshot:", e);
+          }
+
+          // 4. 获取主线最近 20 条主线真实上下文
+          let mainConvoContext = "";
+          try {
+            const st = await currentRoche.memory.getShortTerm({ conversationId: convoId, limit: 20 });
+            if (st && st.length > 0) {
+              mainConvoContext = st.reverse().map(m => {
+                const sender = m.senderHandle || m.senderName || "对方";
+                return `${sender}: ${m.text}`;
+              }).join("\n");
+            }
+          } catch (e) {
+            console.error("Failed to fetch short-term messages during snapshot:", e);
+          }
+
+          // 整理为不可变时空切片结构体
+          const snapshotSlice = {
+            charPersona: finalCharPersona,
+            userPersona: userPersona,
+            coreMemory: coreMemory,
+            factsList: factsListText,
+            mainConvoContext: mainConvoContext
+          };
+          // ==================== 冻结快照采集结束 ====================
+
+          const longTermText = `【核心主线记忆背景】：${coreMemory}\n【重要主线事实】：\n${factsListText}`;
+
+          // 使用刚固化的 Snapshot 进行初次 Prompt 渲染生成，确保完全脱钩
           const systemPrompt = `你是一个平行宇宙剧情出线启动器。
 正在为角色 [${charName}] 和 用户 开启一个新的剧情分支：
 【时间基准】：${timeVal}
 【情感基调】：${toneVal}
 【额外剧情指导】：${extraVal}
 
-【主线已知的记忆和人设基础背景】：
-${backgroundContext}
+【重要：开启时冻结的角色背景人设 (切勿违背，杜绝OOC)】：
+${finalCharPersona}
+
+【重要：开启时冻结的用户人设特质】：
+${userPersona}
+
+【重要：开启时冻结的主对话宿主主线记忆】：
+${longTermText}
+
+【重要：开启时冻结的主对话上下文历史】：
+${mainConvoContext}
 
 请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
 【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
@@ -604,7 +726,8 @@ ${backgroundContext}
               }
             ],
             mountedWorldbooks: [],
-            summaries: [] // 序列初始化 summaries
+            summaries: [],
+            snapshot: snapshotSlice // 永久注入时空冻结快照
           };
 
           state.activeIfLines.push(newIfLine);
@@ -662,6 +785,187 @@ ${backgroundContext}
       };
     }
 
+    // ==================== 极强健双击事件委托逻辑绑定 ====================
+    const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
+    if (scrollBox) {
+      scrollBox.ondblclick = (e) => {
+        // 利用 closest 向上追溯 se-message-block 祖先，避免子节点（发送人/气泡盒等）拦截
+        const block = e.target.closest(".se-message-block");
+        if (block) {
+          e.preventDefault();
+          const idx = parseInt(block.getAttribute("data-idx"), 10);
+          state.activeMenuMessageIndex = idx;
+          state.isEditingMessage = false;
+          render();
+        }
+      };
+    }
+    // ==================== 双击绑定结束 ====================
+
+    // 弹窗内部：取消
+    const btnMenuCancel = pluginContainer.querySelector("#btn-menu-cancel");
+    if (btnMenuCancel) {
+      btnMenuCancel.onclick = () => {
+        state.activeMenuMessageIndex = null;
+        render();
+      };
+    }
+
+    // 弹窗内部：删除消息（楼层自动刷新减一）
+    const btnMenuDelete = pluginContainer.querySelector("#btn-menu-delete");
+    if (btnMenuDelete) {
+      btnMenuDelete.onclick = async () => {
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        if (currentIf && state.activeMenuMessageIndex !== null) {
+          currentIf.messages.splice(state.activeMenuMessageIndex, 1);
+          state.activeMenuMessageIndex = null;
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("消息删除成功");
+        }
+      };
+    }
+
+    // 弹窗内部：切换编辑模式
+    const btnMenuEdit = pluginContainer.querySelector("#btn-menu-edit");
+    if (btnMenuEdit) {
+      btnMenuEdit.onclick = () => {
+        state.isEditingMessage = true;
+        render();
+      };
+    }
+
+    // 编辑状态下：返回
+    const btnCancelEditMsg = pluginContainer.querySelector("#btn-cancel-edit-msg");
+    if (btnCancelEditMsg) {
+      btnCancelEditMsg.onclick = () => {
+        state.isEditingMessage = false;
+        render();
+      };
+    }
+
+    // 编辑状态下：保存修改
+    const btnSaveEditMsg = pluginContainer.querySelector("#btn-save-edit-msg");
+    if (btnSaveEditMsg) {
+      btnSaveEditMsg.onclick = async () => {
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        const editArea = pluginContainer.querySelector("#edit-msg-text-area");
+        if (currentIf && editArea && state.activeMenuMessageIndex !== null) {
+          const textVal = editArea.value.trim();
+          if (!textVal) {
+            currentRoche.ui.toast("消息内容不能为空");
+            return;
+          }
+          currentIf.messages[state.activeMenuMessageIndex].text = textVal;
+          state.activeMenuMessageIndex = null;
+          state.isEditingMessage = false;
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("修改保存成功");
+        }
+      };
+    }
+
+    // 弹窗内部：回滚重回（从最近的 user 发言点火重建）
+    const btnMenuRollback = pluginContainer.querySelector("#btn-menu-rollback");
+    if (btnMenuRollback) {
+      btnMenuRollback.onclick = async () => {
+        const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+        if (!currentIf || state.activeMenuMessageIndex === null) return;
+
+        const targetIdx = state.activeMenuMessageIndex;
+        let rollbackUserIdx = -1;
+        // 向上检索最邻近的一条用户发言
+        for (let i = targetIdx; i >= 0; i--) {
+          if (currentIf.messages[i].role === "user") {
+            rollbackUserIdx = i;
+            break;
+          }
+        }
+
+        if (rollbackUserIdx !== -1) {
+          // 保留该发言（含）之前的序列，其后切除
+          currentIf.messages = currentIf.messages.slice(0, rollbackUserIdx + 1);
+        } else {
+          // 若其上无用户发言，则重置回空，等待重新点火
+          currentIf.messages = [];
+        }
+
+        state.activeMenuMessageIndex = null;
+        await savePluginState();
+        render();
+
+        const triggerBtn = pluginContainer.querySelector("#btn-trigger-ai");
+        if (triggerBtn) {
+          // 存在历史 user 发言，直接自动触发重连生成
+          triggerBtn.click();
+        } else {
+          // 否则进入初始化点火生成逻辑，读取快照重连
+          if (currentIf.messages.length === 0) {
+            state.isGenerating = true;
+            render();
+            try {
+              const charName = currentIf.charName;
+              // 从冻结切片快照中读取人设与事实
+              const snapshot = currentIf.snapshot || {};
+              const finalCharPersona = snapshot.charPersona || "保持其一贯性格特点。";
+              const userPersona = snapshot.userPersona || "";
+              const coreMemory = snapshot.coreMemory || "";
+              const factsListText = snapshot.factsList || "";
+              const mainConvoContext = snapshot.mainConvoContext || "";
+              const longTermText = `【核心主线记忆背景】：${coreMemory}\n【重要主线事实】：\n${factsListText}`;
+
+              const systemPrompt = `你是一个平行宇宙剧情出线启动器。
+正在为角色 [${charName}] 和 用户 开启一个新的剧情分支：
+【时间基准】：${currentIf.time}
+【情感基调】：${currentIf.tone}
+【额外剧情指导】：${currentIf.extra}
+
+【重要：开启时冻结的角色背景人设 (切勿违背，杜绝OOC)】：
+${finalCharPersona}
+
+【重要：开启时冻结的用户人设特质】：
+${userPersona}
+
+【重要：开启时冻结的主对话宿主主线记忆】：
+${longTermText}
+
+【重要：开启时冻结的主对话上下文历史】：
+${mainConvoContext}
+
+请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
+【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
+要求：文笔唯美细腻，直接开始正文描写，不要输出任何旁白，字数在400字左右。`;
+
+              const response = await currentRoche.ai.chat({
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  { role: "user", content: "请开始你的撰写。" }
+                ],
+                temperature: 0.8
+              });
+
+              currentIf.messages.push({
+                role: "assistant",
+                text: response.text || "重回初始化失败。",
+                mode: "offline",
+                timestamp: Date.now()
+              });
+
+              await savePluginState();
+              currentRoche.ui.toast("剧情成功重回并初始化");
+            } catch (err) {
+              console.error(err);
+              currentRoche.ui.toast("重连重组异常");
+            } finally {
+              state.isGenerating = false;
+              render();
+            }
+          }
+        }
+      };
+    }
+
     const chatInput = pluginContainer.querySelector("#chat-input");
     if (chatInput) {
       chatInput.onkeydown = (e) => {
@@ -704,9 +1008,25 @@ ${backgroundContext}
         render();
 
         try {
+          // ==================== 快照切片绝对防御：杜绝时空记忆漂移及OOC ====================
+          // 不再实时调用 roche 接口，强制读取本分支创建时固化下来的时空点1快照，确保逻辑沙盒固化
+          const snapshot = currentIf.snapshot || {
+            charPersona: "保持其一贯性格特点。",
+            userPersona: "",
+            coreMemory: "无核心记忆",
+            factsList: "无记忆事实",
+            mainConvoContext: ""
+          };
+
+          const finalCharPersona = snapshot.charPersona;
+          const userPersona = snapshot.userPersona;
+          const longTermText = `【核心主线记忆背景】：${snapshot.coreMemory}\n【重要主线事实】：\n${snapshot.factsList}`;
+          const mainConvoContext = snapshot.mainConvoContext;
+          // ==================== 固化防御提取完成 ====================
+
           const historyText = currentIf.messages.map((m, idx) => {
             const sender = m.role === "user" ? "用户" : currentIf.charName;
-            const modeName = m.mode === "online" ? "[线上对话]" : "[线下叙事]";
+            const modeName = m.mode === "online" ? "[线上微信]" : "[线下小说体]";
             return `${idx + 1}. ${modeName} ${sender}: ${m.text}`;
           }).join("\n\n");
 
@@ -716,39 +1036,70 @@ ${backgroundContext}
           if (currentIf.mode === "online") {
             systemPrompt = `你现在进入角色扮演模式。你将扮演角色: ${currentIf.charName}。
 这是一个正在演进中的微信聊天（线上）平行宇宙剧情分支出线。
+
+【重要：开启时冻结的角色背景人设 (切勿违背，杜绝OOC)】：
+${finalCharPersona}
+
+【重要：开启时冻结的用户人设特质】：
+${userPersona}
+
+【重要：开启时冻结的主对话宿主主线记忆】：
+${longTermText}
+
+【重要：开启时冻结的主对话上下文历史】：
+${mainConvoContext}
+
+【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
+// 本提示中，系统合并当前时间 2026 年
+【当下绝对时间标尺】：2026年
 【额外强制指令】：${currentIf.extra}
 
-【挂载的世界书世界观设定】：
+【挂载的世界书词条设定】：
 ${wbCombined}
 
-【微信聊天对话往期历史】：
+【本分支IF线已演进的历史轨迹】：
 ${historyText}
 
-请在当前【线上对话场景】下，以【第一人称微信口吻】进行回复。
+请在当前【微信线上对话场景】下，以【第一人称微信口吻】进行回复。
 【多气泡简短连发机制】：
-请务必模仿现代人聊天连发多条短消息的习惯，你必须一次性产生并发送【至少3条】连续发出的简短气泡消息。
-这3条消息必须用特殊的标记字符 "[SPLIT]" 将它们隔开。
+请务必模仿现代人微信聊天连发多条短消息的特征，你必须一次性产生并回复【至少3条】连续发出的简短气泡消息。
+这3条消息必须使用特殊的标记字符 "[SPLIT]" 完美隔开。
 例如输出规范：
 第一条问候或直接短句。[SPLIT]第二条进行追问或表达微表情。[SPLIT]第三条做细节补充或提出互动。
 
-严禁合并成大段话！直接输出用 [SPLIT] 隔开的至少3条短句台词，绝不包含任何旁白、叙事或释义说明。`;
+严禁合并成大段话！必须输出用 [SPLIT] 隔开的连贯简短台词。严格保证角色人设本音，杜绝任何OOC行为。绝不携带叙事旁白或解释说明。`;
           } else {
             systemPrompt = `你是一个高级的小说剧情续写引擎。正在为角色 ${currentIf.charName} 与用户共同编写分支剧情。
+
+【重要：开启时冻结的角色背景人设 (切勿违背，杜绝OOC)】：
+${finalCharPersona}
+
+【重要：开启时冻结的用户人设特质】：
+${userPersona}
+
+【重要：开启时冻结的主对话宿主主线记忆】：
+${longTermText}
+
+【重要：开启时冻结的主对话上下文历史】：
+${mainConvoContext}
+
+【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
+【当下绝对时间标尺】：2026年
 【额外强制指令】：${currentIf.extra}
 
-【挂载的世界书世界观设定】：
+【挂载的世界书词条设定】：
 ${wbCombined}
 
-【剧情与对话往期历史】：
+【本分支IF线已演进的历史轨迹】：
 ${historyText}
 
 请在当前“线下叙事”模式下，继续编写下一阶段的小说长文故事推进。
 【强制禁令】：严禁代替“你”（用户）做出任何具体的行为动作、神态描写、言语台词、意志选择或内心活动描述！你只能描写角色 ${currentIf.charName} 的肢体行动、言语对答、情绪神态、内心世界、以及物理环境和情景局势的变化推进，必须把做出反应和自由发声的空间留给用户。
-要求：直接输出续写正文，绝对不要输出任何旁白或释义说明。`;
+要求：保持角色原本神韵，绝对杜绝任何OOC。直接输出故事小说正文，绝不输出任何叙事外备注、旁白或释义。`;
           }
 
           const response = await currentRoche.ai.chat({
@@ -761,10 +1112,8 @@ ${historyText}
 
           const replyText = response.text || "AI 续写引擎发生阻断，未返回有效信息。";
 
-          // 多气泡上屏渲染分流解析
           if (currentIf.mode === "online") {
             let parts = replyText.split(/\[SPLIT\]/);
-            // 兜底策略：如果 AI 未正常按照 [SPLIT] 分割，则利用分段拆分成多气泡
             if (parts.length <= 1) {
               parts = replyText.split(/\n+/).filter(Boolean);
             }
@@ -779,7 +1128,6 @@ ${historyText}
                 });
               }
             });
-            // 彻底兜底保证至少一条
             if (currentIf.messages.length > 0 && currentIf.messages[currentIf.messages.length - 1].role === "user") {
               currentIf.messages.push({
                 role: "assistant",
@@ -789,7 +1137,6 @@ ${historyText}
               });
             }
           } else {
-            // 线下直接压入
             currentIf.messages.push({
               role: "assistant",
               text: replyText,
@@ -846,7 +1193,6 @@ ${historyText}
       };
     });
 
-    // 生成段落区间总结（具有 Loading 覆盖与堆栈管理）
     const btnGenSummary = pluginContainer.querySelector("#btn-gen-summary");
     if (btnGenSummary) {
       btnGenSummary.onclick = async () => {
@@ -861,7 +1207,7 @@ ${historyText}
           return;
         }
 
-        state.isGeneratingSummary = true; // 开启生成状态
+        state.isGeneratingSummary = true; 
         render();
 
         try {
@@ -875,7 +1221,10 @@ ${historyText}
             messages: [
               {
                 role: "system",
-                content: `请对以下指定区间的剧情记录进行高度精简、连贯生动的概要总结（150字左右），注意不漏掉关键的人物情感和事件转变：\n\n${segmentText}`
+                content: `请对以下指定区间的剧情记录进行精简、连贯的概要总结。
+【严格铁律限制】：
+1. 总结内容的总字数必须严格控制在200字以内，不要超出！
+2. 文体必须采用绝对客观、写实且中立的“事实客观叙述文体”，不带任何感情倾向、虚构渲染、抒情词汇或旁白式主观议论：\n\n${segmentText}`
               }
             ],
             temperature: 0.7
@@ -894,7 +1243,7 @@ ${historyText}
           });
 
           await savePluginState();
-          currentRoche.ui.toast("跨段总结生成成功并入库");
+          currentRoche.ui.toast("总结生成成功并保存");
         } catch (e) {
           console.error(e);
           currentRoche.ui.toast("总结获取失败");
@@ -905,7 +1254,6 @@ ${historyText}
       };
     }
 
-    // 总结展开与折叠
     pluginContainer.querySelectorAll(".btn-toggle-sum").forEach(btn => {
       btn.onclick = async () => {
         const sumId = btn.getAttribute("data-id");
@@ -919,7 +1267,6 @@ ${historyText}
       };
     });
 
-    // 总结编辑编辑并保存
     pluginContainer.querySelectorAll(".btn-save-sum").forEach(btn => {
       btn.onclick = async () => {
         const sumId = btn.getAttribute("data-id");
@@ -936,7 +1283,7 @@ ${historyText}
         const sum = currentIf.summaries.find(s => s.id === sumId);
         if (sum) {
           sum.text = textVal;
-          sum.isExpanded = false; // 保存后折叠
+          sum.isExpanded = false; 
           await savePluginState();
           render();
           currentRoche.ui.toast("编辑保存成功");
@@ -944,7 +1291,6 @@ ${historyText}
       };
     });
 
-    // 删除单条总结
     pluginContainer.querySelectorAll(".btn-delete-sum").forEach(btn => {
       btn.onclick = async () => {
         const sumId = btn.getAttribute("data-id");
@@ -1018,9 +1364,10 @@ ${historyText}
             messages: [
               {
                 role: "system",
-                content: `请将以下在平行 IF 出线里发生的事件、人物心路变化及交流，提炼成一段高度精简的、用于注入用户长期记忆库中的“事实总结（Fact Memory）”。
-要求：以事实性的陈述句描述（150字内）。
-例如：“在一条平行分支线中，用户与沈砚在深夜的大雨中长谈，解开了过去的误会，彼此心灵更加贴近，决定未来共同面对危机。”
+                content: `请将以下在平行 IF 出线里发生的事件、人物关系心路变化提炼成一段极其精炼的、用于写入宿主长期事实记忆中的客观事实。
+【严格铁律限制】：
+1. 提炼的字数必须严格限制在200字以内，严禁超出！
+2. 提炼文体必须采用最陈述、客观中立的“事实客观叙述文体”，杜绝任何主观渲染、抒情词汇、议论或虚构旁白。
 
 剧情记录如下：
 ${fullHistory}`
@@ -1065,7 +1412,7 @@ ${fullHistory}`
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.3",
+    version: "1.0.5",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -1076,14 +1423,14 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态注入全新轻盈护眼与总结层栈样式表
+          // 1. 动态注入样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
             styleEl = document.createElement("style");
             styleEl.id = styleId;
             styleEl.innerHTML = `
-              /* 护眼、大面积使用轻灵柔和明亮风格 */
+              /* 护眼柔和色系，留白丰富，长宽自适应，适配双击高亮与快照可视化 */
               .roche-plugin-story-engine {
                 --se-bg: #f8fafc; 
                 --se-surface: #ffffff; 
@@ -1131,7 +1478,7 @@ ${fullHistory}`
                 font-weight: 600;
               }
 
-              /* 主滚动视口 */
+              /* 主视口 */
               .se-main {
                 flex: 1;
                 overflow-y: auto;
@@ -1140,7 +1487,7 @@ ${fullHistory}`
                 flex-direction: column;
               }
 
-              /* 沉浸式全屏布局（子页面自适应） */
+              /* 沉浸式全屏布局 */
               .se-main-full {
                 padding: 0 !important;
                 height: 100% !important;
@@ -1148,7 +1495,7 @@ ${fullHistory}`
                 flex-direction: column;
               }
 
-              /* 绝对定位磨砂玻璃遮罩层 */
+              /* 绝对定位遮罩层（事件委托重组） */
               .se-overlay {
                 position: absolute;
                 top: 0; left: 0; right: 0; bottom: 0;
@@ -1184,6 +1531,45 @@ ${fullHistory}`
               }
               @keyframes se-spin {
                 100% { transform: rotate(360deg); }
+              }
+
+              /* 消息高级操作菜单特定卡片 */
+              .se-context-menu-card {
+                width: 320px;
+                max-width: 90%;
+              }
+              .se-context-menu-title {
+                font-size: 15px;
+                font-weight: 700;
+                color: var(--se-primary);
+                margin-bottom: 8px;
+                text-align: center;
+              }
+              .se-context-menu-preview {
+                font-size: 12px;
+                color: var(--se-text-muted);
+                line-height: 1.4;
+                background-color: var(--se-bg);
+                padding: 8px;
+                border-radius: 6px;
+                margin-bottom: 16px;
+                word-break: break-all;
+              }
+              .se-context-menu-options {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                width: 100%;
+              }
+              .se-context-menu-row {
+                display: flex;
+                gap: 8px;
+                width: 100%;
+                margin-top: 12px;
+              }
+              .btn-menu-action {
+                width: 100%;
+                justify-content: center;
               }
 
               /* 简约面板 */
@@ -1398,7 +1784,7 @@ ${fullHistory}`
                 padding: 16px;
               }
 
-              /* 线上：仿微信极简对讲风格 */
+              /* 线上：仿微信极简 */
               .se-chat-viewport-wechat {
                 background-color: #ededed !important; 
               }
@@ -1449,6 +1835,7 @@ ${fullHistory}`
                 border-left: 3px solid var(--se-primary);
                 margin: 4px 0;
                 border-radius: 0 8px 8px 0;
+                cursor: pointer;
               }
               .se-narrative-meta {
                 font-size: 11px;
@@ -1471,6 +1858,7 @@ ${fullHistory}`
                 border-left: 3px dashed #94a3b8;
                 margin: 4px 0;
                 border-radius: 0 8px 8px 0;
+                cursor: pointer;
               }
               .se-narrative-block-user .se-narrative-meta {
                 color: #64748b;
@@ -1486,7 +1874,52 @@ ${fullHistory}`
                 font-style: italic;
               }
 
-              /* 跨段总结层栈堆叠 */
+              /* 支持双击消息高亮 hover 过渡 */
+              .se-message-block {
+                transition: outline 0.15s ease;
+              }
+              .se-message-block:hover {
+                outline: 1.5px dashed rgba(79, 70, 229, 0.4);
+                border-radius: 8px;
+              }
+
+              /* 时空快照可视化视窗 */
+              .se-snapshot-visualizer {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                margin-top: 8px;
+                max-height: 200px;
+                overflow-y: auto;
+                border: 1px solid var(--se-border);
+                padding: 10px;
+                border-radius: 6px;
+                background-color: var(--se-input-bg);
+              }
+              .se-snapshot-item-block {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                border-bottom: 1px dashed var(--se-border);
+                padding-bottom: 8px;
+              }
+              .se-snapshot-item-block:last-child {
+                border-bottom: none;
+                padding-bottom: 0;
+              }
+              .se-snapshot-sub-title {
+                font-size: 11px;
+                font-weight: 700;
+                color: var(--se-primary);
+              }
+              .se-snapshot-sub-body {
+                font-size: 11.5px;
+                color: var(--se-text-muted);
+                line-height: 1.4;
+                word-break: break-all;
+              }
+
+              /* 跨段总结层栈 */
               .se-summaries-stack {
                 display: flex;
                 flex-direction: column;
