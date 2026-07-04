@@ -96,6 +96,7 @@
   function render() {
     if (!pluginContainer) return;
 
+    // 是否渲染全局外挂框架（大页头、底部 Dock）
     const showShell = !state.selectedConvoIdForNew && 
                       !(state.activeTab === "extend" && state.currentIfLineId) && 
                       !(state.activeTab === "backend" && state.viewingEndedLineId);
@@ -259,28 +260,25 @@
 
                 <div class="se-divider"></div>
 
-                <!-- 时空锚点时空快照可视化 -->
+                <!-- 时空快照可视化 (严格展现4个指定冻结字段) -->
                 <div class="se-section-title">时空记忆快照 (锁定于开启节点)</div>
                 <div class="se-panel-desc">本分支与主线脱钩，锁定在创建时该分支所获取的主线人设与记忆。</div>
                 <div class="se-snapshot-visualizer">
                   <div class="se-snapshot-item-block">
-                    <div class="se-snapshot-sub-title">主线冻结人设</div>
+                    <div class="se-snapshot-sub-title">char人设</div>
                     <div class="se-snapshot-sub-body">${currentIf.snapshot?.charPersona || "无冻结人设记录"}</div>
                   </div>
                   <div class="se-snapshot-item-block">
-                    <div class="se-snapshot-sub-title">用户冻结特质</div>
+                    <div class="se-snapshot-sub-title">user人设</div>
                     <div class="se-snapshot-sub-body">${currentIf.snapshot?.userPersona || "无冻结特质记录"}</div>
                   </div>
                   <div class="se-snapshot-item-block">
-                    <div class="se-snapshot-sub-title">时空锚点主线记忆事实</div>
-                    <div class="se-snapshot-sub-body">
-                      <strong>核心主线摘要:</strong> ${currentIf.snapshot?.coreMemory || "无"}<br>
-                      <strong>事实列表:</strong><br>${(currentIf.snapshot?.factsList || "").replace(/\n/g, "<br>")}
-                    </div>
+                    <div class="se-snapshot-sub-title">核心记忆</div>
+                    <div class="se-snapshot-sub-body">${currentIf.snapshot?.coreMemory || "无核心记忆总结"}</div>
                   </div>
                   <div class="se-snapshot-item-block">
-                    <div class="se-snapshot-sub-title">时空点对话历史</div>
-                    <div class="se-snapshot-sub-body">${(currentIf.snapshot?.mainConvoContext || "").replace(/\n/g, "<br>")}</div>
+                    <div class="se-snapshot-sub-title">事实记忆</div>
+                    <div class="se-snapshot-sub-body">${(currentIf.snapshot?.factsList || "").replace(/\n/g, "<br>") || "无主记忆事实事实"}</div>
                   </div>
                 </div>
 
@@ -303,7 +301,6 @@
                 </div>
               `;
             } else {
-              // 微信微信泡
               const isUser = m.role === "user";
               const sideClass = isUser ? "se-bubble-right" : "se-bubble-left";
               const senderName = isUser ? "我" : currentIf.charName;
@@ -424,16 +421,15 @@
           `;
         }).join("");
 
+        // 重写后台查看逻辑，采用 100% 高度自适应视窗，展示所有记录
         mainContentHtml = `
-          <div class="se-form-container">
+          <div class="se-form-container se-backend-log-view">
             <div class="se-form-header">
               <button class="se-btn-icon" id="btn-back-to-backend">${SVGS.arrowLeft}</button>
-              <div class="se-form-title">查看已归档的 IF 线记录</div>
+              <div class="se-form-title">查看已归档的 IF 线记录：${endedIf.charName}</div>
             </div>
-            <div class="se-form-body">
-              <div class="se-form-group">
-                <button class="se-btn-primary" id="btn-inject-main-mem">生成总结并注入宿主主记忆</button>
-              </div>
+            <div class="se-form-body se-log-body-stretch">
+              <button class="se-btn-primary" id="btn-inject-main-mem">生成总结并注入宿主主记忆</button>
               <div class="se-log-box">
                 ${logHtml}
               </div>
@@ -467,6 +463,12 @@
       }
     }
 
+    // 动态生成统一格式的动作过渡等待层
+    let overlayText = "正在生成中...";
+    if (state.activeTab === "select") overlayText = "平行时空引擎启动中...";
+    if (state.activeTab === "extend") overlayText = "剧情深度续写中...";
+    if (state.activeTab === "backend") overlayText = "正在总结并提炼主记忆...";
+
     if (showShell) {
       pluginContainer.innerHTML = `
         <div class="roche-plugin-story-engine">
@@ -476,7 +478,15 @@
             <button class="se-btn-icon" id="btn-close-app">${SVGS.close}</button>
           </div>
 
-          <div class="se-main">
+          <div class="se-main" style="position: relative;">
+            ${state.isGenerating ? `
+              <div class="se-overlay">
+                <div class="se-overlay-card">
+                  <div class="se-spinner"></div>
+                  <div>${overlayText}</div>
+                </div>
+              </div>
+            ` : ""}
             ${mainContentHtml}
           </div>
 
@@ -499,7 +509,15 @@
     } else {
       pluginContainer.innerHTML = `
         <div class="roche-plugin-story-engine">
-          <div class="se-main se-main-full">
+          <div class="se-main se-main-full" style="position: relative;">
+            ${state.isGenerating ? `
+              <div class="se-overlay">
+                <div class="se-overlay-card">
+                  <div class="se-spinner"></div>
+                  <div>${overlayText}</div>
+                </div>
+              </div>
+            ` : ""}
             ${mainContentHtml}
           </div>
         </div>
@@ -609,8 +627,7 @@
           const convo = state.conversations.find(c => c.id === convoId);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          // ==================== 冻结快照采集 (时空锚点1固化开始) ====================
-          // 1. 获取主线角色人设 (Persona/Bio)
+          // ==================== 快照冻结开始 (时空锚点1收集) ====================
           let charPersona = "";
           let charBio = "";
           try {
@@ -622,11 +639,10 @@
               }
             }
           } catch (e) {
-            console.error("Failed to fetch character details during snapshot:", e);
+            console.error("Snapshot char persona failed:", e);
           }
           const finalCharPersona = charPersona || charBio || "保持其一贯性格特点。";
 
-          // 2. 获取主线用户人设
           let userPersona = "";
           try {
             const activeUser = await currentRoche.persona.getActiveUserPersona();
@@ -634,12 +650,11 @@
               userPersona = activeUser.persona || activeUser.bio || "";
             }
           } catch (e) {
-            console.error("Failed to fetch user persona during snapshot:", e);
+            console.error("Snapshot user persona failed:", e);
           }
 
-          // 3. 获取主线长存长期记忆
           let coreMemory = "无核心记忆总结";
-          let factsListText = "无主线主记忆 facts 事实";
+          let factsListText = "无主线主记忆事实";
           try {
             const lt = await currentRoche.memory.getLongTerm({ conversationId: convoId, limit: 30 });
             if (lt) {
@@ -647,10 +662,9 @@
               factsListText = (lt.facts || []).map(f => f.summaryText || f.action || "").filter(Boolean).join("\n");
             }
           } catch (e) {
-            console.error("Failed to fetch long-term memories during snapshot:", e);
+            console.error("Snapshot memories failed:", e);
           }
 
-          // 4. 获取主线最近 20 条主线真实上下文
           let mainConvoContext = "";
           try {
             const st = await currentRoche.memory.getShortTerm({ conversationId: convoId, limit: 20 });
@@ -661,10 +675,9 @@
               }).join("\n");
             }
           } catch (e) {
-            console.error("Failed to fetch short-term messages during snapshot:", e);
+            console.error("Snapshot shortterm context failed:", e);
           }
 
-          // 整理为不可变时空切片结构体
           const snapshotSlice = {
             charPersona: finalCharPersona,
             userPersona: userPersona,
@@ -672,11 +685,10 @@
             factsList: factsListText,
             mainConvoContext: mainConvoContext
           };
-          // ==================== 冻结快照采集结束 ====================
+          // ==================== 快照固化完成 ====================
 
           const longTermText = `【核心主线记忆背景】：${coreMemory}\n【重要主线事实】：\n${factsListText}`;
 
-          // 使用刚固化的 Snapshot 进行初次 Prompt 渲染生成，确保完全脱钩
           const systemPrompt = `你是一个平行宇宙剧情出线启动器。
 正在为角色 [${charName}] 和 用户 开启一个新的剧情分支：
 【时间基准】：${timeVal}
@@ -727,7 +739,7 @@ ${mainConvoContext}
             ],
             mountedWorldbooks: [],
             summaries: [],
-            snapshot: snapshotSlice // 永久注入时空冻结快照
+            snapshot: snapshotSlice 
           };
 
           state.activeIfLines.push(newIfLine);
@@ -785,11 +797,10 @@ ${mainConvoContext}
       };
     }
 
-    // ==================== 极强健双击事件委托逻辑绑定 ====================
+    // 双击消息事件委托处理器（抗阻断、无遮挡精确寻源）
     const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
     if (scrollBox) {
       scrollBox.ondblclick = (e) => {
-        // 利用 closest 向上追溯 se-message-block 祖先，避免子节点（发送人/气泡盒等）拦截
         const block = e.target.closest(".se-message-block");
         if (block) {
           e.preventDefault();
@@ -800,9 +811,7 @@ ${mainConvoContext}
         }
       };
     }
-    // ==================== 双击绑定结束 ====================
 
-    // 弹窗内部：取消
     const btnMenuCancel = pluginContainer.querySelector("#btn-menu-cancel");
     if (btnMenuCancel) {
       btnMenuCancel.onclick = () => {
@@ -811,7 +820,6 @@ ${mainConvoContext}
       };
     }
 
-    // 弹窗内部：删除消息（楼层自动刷新减一）
     const btnMenuDelete = pluginContainer.querySelector("#btn-menu-delete");
     if (btnMenuDelete) {
       btnMenuDelete.onclick = async () => {
@@ -826,7 +834,6 @@ ${mainConvoContext}
       };
     }
 
-    // 弹窗内部：切换编辑模式
     const btnMenuEdit = pluginContainer.querySelector("#btn-menu-edit");
     if (btnMenuEdit) {
       btnMenuEdit.onclick = () => {
@@ -835,7 +842,6 @@ ${mainConvoContext}
       };
     }
 
-    // 编辑状态下：返回
     const btnCancelEditMsg = pluginContainer.querySelector("#btn-cancel-edit-msg");
     if (btnCancelEditMsg) {
       btnCancelEditMsg.onclick = () => {
@@ -844,7 +850,6 @@ ${mainConvoContext}
       };
     }
 
-    // 编辑状态下：保存修改
     const btnSaveEditMsg = pluginContainer.querySelector("#btn-save-edit-msg");
     if (btnSaveEditMsg) {
       btnSaveEditMsg.onclick = async () => {
@@ -866,7 +871,6 @@ ${mainConvoContext}
       };
     }
 
-    // 弹窗内部：回滚重回（从最近的 user 发言点火重建）
     const btnMenuRollback = pluginContainer.querySelector("#btn-menu-rollback");
     if (btnMenuRollback) {
       btnMenuRollback.onclick = async () => {
@@ -875,7 +879,6 @@ ${mainConvoContext}
 
         const targetIdx = state.activeMenuMessageIndex;
         let rollbackUserIdx = -1;
-        // 向上检索最邻近的一条用户发言
         for (let i = targetIdx; i >= 0; i--) {
           if (currentIf.messages[i].role === "user") {
             rollbackUserIdx = i;
@@ -884,10 +887,8 @@ ${mainConvoContext}
         }
 
         if (rollbackUserIdx !== -1) {
-          // 保留该发言（含）之前的序列，其后切除
           currentIf.messages = currentIf.messages.slice(0, rollbackUserIdx + 1);
         } else {
-          // 若其上无用户发言，则重置回空，等待重新点火
           currentIf.messages = [];
         }
 
@@ -897,16 +898,13 @@ ${mainConvoContext}
 
         const triggerBtn = pluginContainer.querySelector("#btn-trigger-ai");
         if (triggerBtn) {
-          // 存在历史 user 发言，直接自动触发重连生成
           triggerBtn.click();
         } else {
-          // 否则进入初始化点火生成逻辑，读取快照重连
           if (currentIf.messages.length === 0) {
             state.isGenerating = true;
             render();
             try {
               const charName = currentIf.charName;
-              // 从冻结切片快照中读取人设与事实
               const snapshot = currentIf.snapshot || {};
               const finalCharPersona = snapshot.charPersona || "保持其一贯性格特点。";
               const userPersona = snapshot.userPersona || "";
@@ -1008,13 +1006,12 @@ ${mainConvoContext}
         render();
 
         try {
-          // ==================== 快照切片绝对防御：杜绝时空记忆漂移及OOC ====================
-          // 不再实时调用 roche 接口，强制读取本分支创建时固化下来的时空点1快照，确保逻辑沙盒固化
+          // ==================== 冻结快照装载 (杜绝漂移及 OOC) ====================
           const snapshot = currentIf.snapshot || {
             charPersona: "保持其一贯性格特点。",
             userPersona: "",
-            coreMemory: "无核心记忆",
-            factsList: "无记忆事实",
+            coreMemory: "无核心记忆总结",
+            factsList: "无主记忆事实",
             mainConvoContext: ""
           };
 
@@ -1022,7 +1019,7 @@ ${mainConvoContext}
           const userPersona = snapshot.userPersona;
           const longTermText = `【核心主线记忆背景】：${snapshot.coreMemory}\n【重要主线事实】：\n${snapshot.factsList}`;
           const mainConvoContext = snapshot.mainConvoContext;
-          // ==================== 固化防御提取完成 ====================
+          // ==================== 冻结快照结束 ====================
 
           const historyText = currentIf.messages.map((m, idx) => {
             const sender = m.role === "user" ? "用户" : currentIf.charName;
@@ -1052,7 +1049,7 @@ ${mainConvoContext}
 【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
-// 本提示中，系统合并当前时间 2026 年
+// 设定绝对当前时间
 【当下绝对时间标尺】：2026年
 【额外强制指令】：${currentIf.extra}
 
@@ -1352,7 +1349,7 @@ ${historyText}
         const endedIf = state.endedIfLines.find(x => x.id === state.viewingEndedLineId);
         if (!endedIf) return;
 
-        state.isGenerating = true;
+        state.isGenerating = true; // 加载遮罩提示自动触发
         render();
 
         try {
@@ -1383,15 +1380,17 @@ ${fullHistory}`
 
           const ok = await currentRoche.ui.confirm({
             title: "确认注入宿主主记忆数据库？",
-            message: `以下为生成的记忆事实描述：\n\n"${memorySummary}"\n\n【注意】：此数据将永久写入 Roche 宿主此角色的主 facts 记忆库中。卸载插件时，已写入的记忆将“不会”被删除。确认注入吗？`
+            message: `以下为生成的记忆事实描述：\n\n"${memorySummary}"\n\n【注意】：此数据将永久写入 Roche 宿主此角色的主 facts 记忆库中。确认注入吗？`
           });
 
           if (ok) {
+            // 将 AI 总结的事实同时赋值给 summaryText 和 action 属性
+            // 解决 Roche UI 卡片仅提取 action 渲染导致显示 generic 描述的问题
             await currentRoche.memory.write({
               conversationId: endedIf.conversationId,
-              summaryText: memorySummary,
+              summaryText: memorySummary, 
+              action: memorySummary,       
               who: ["用户", endedIf.charName],
-              action: "在分支时间线中发生深度互动，促进了关系发展",
               when: endedIf.time || "过去",
               where: "平行剧情出线中",
               source: "story-engine-plugin"
@@ -1412,7 +1411,7 @@ ${fullHistory}`
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.5",
+    version: "1.0.6",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -1423,14 +1422,13 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态注入样式表
+          // 1. 动态注入自适应明亮护眼样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
             styleEl = document.createElement("style");
             styleEl.id = styleId;
             styleEl.innerHTML = `
-              /* 护眼柔和色系，留白丰富，长宽自适应，适配双击高亮与快照可视化 */
               .roche-plugin-story-engine {
                 --se-bg: #f8fafc; 
                 --se-surface: #ffffff; 
@@ -1495,7 +1493,7 @@ ${fullHistory}`
                 flex-direction: column;
               }
 
-              /* 绝对定位遮罩层（事件委托重组） */
+              /* 绝对定位遮罩层（全端动作响应提示） */
               .se-overlay {
                 position: absolute;
                 top: 0; left: 0; right: 0; bottom: 0;
@@ -1533,7 +1531,7 @@ ${fullHistory}`
                 100% { transform: rotate(360deg); }
               }
 
-              /* 消息高级操作菜单特定卡片 */
+              /* 消息高级操作菜单卡片 */
               .se-context-menu-card {
                 width: 320px;
                 max-width: 90%;
@@ -1727,6 +1725,28 @@ ${fullHistory}`
                 flex: 1;
               }
 
+              /* 后台归档查看高宽拉伸自适应 */
+              .se-backend-log-view {
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+              }
+              .se-log-body-stretch {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                min-height: 0; 
+              }
+              .se-log-box {
+                flex: 1;
+                overflow-y: auto;
+                border: 1px solid var(--se-border);
+                padding: 12px;
+                border-radius: 8px;
+                background-color: #fff;
+              }
+
               /* 交互聊天室 */
               .se-chat-container {
                 display: flex;
@@ -1784,7 +1804,7 @@ ${fullHistory}`
                 padding: 16px;
               }
 
-              /* 线上：仿微信极简 */
+              /* 线上：微信 */
               .se-chat-viewport-wechat {
                 background-color: #ededed !important; 
               }
@@ -1828,7 +1848,7 @@ ${fullHistory}`
                 border: 1px solid #83d45a;
               }
 
-              /* 线下：叙事体 */
+              /* 线下：叙事 */
               .se-narrative-block {
                 padding: 16px;
                 background-color: #f1f5f9;
@@ -1874,7 +1894,6 @@ ${fullHistory}`
                 font-style: italic;
               }
 
-              /* 支持双击消息高亮 hover 过渡 */
               .se-message-block {
                 transition: outline 0.15s ease;
               }
@@ -1883,7 +1902,7 @@ ${fullHistory}`
                 border-radius: 8px;
               }
 
-              /* 时空快照可视化视窗 */
+              /* 时空快照可视化布局 */
               .se-snapshot-visualizer {
                 display: flex;
                 flex-direction: column;
@@ -1911,6 +1930,7 @@ ${fullHistory}`
                 font-size: 11px;
                 font-weight: 700;
                 color: var(--se-primary);
+                text-transform: uppercase;
               }
               .se-snapshot-sub-body {
                 font-size: 11.5px;
@@ -1919,7 +1939,7 @@ ${fullHistory}`
                 word-break: break-all;
               }
 
-              /* 跨段总结层栈 */
+              /* 跨段总结堆叠 */
               .se-summaries-stack {
                 display: flex;
                 flex-direction: column;
