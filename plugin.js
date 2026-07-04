@@ -13,7 +13,9 @@
     settings: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
     trash: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
     checkmark: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
-    close: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
+    close: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+    send: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`,
+    generate: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>`
   };
 
   // 插件状态定义
@@ -37,7 +39,9 @@
     newIfForm: {
       time: "当下",
       tone: "浪漫",
-      extra: ""
+      extra: "",
+      minWords: 300,
+      maxWords: 600
     },
 
     detailsState: {
@@ -69,6 +73,8 @@
       if (data) {
         state.activeIfLines = (data.activeIfLines || []).map(line => {
           line.summaries = line.summaries || [];
+          line.minWords = line.minWords || 300;
+          line.maxWords = line.maxWords || 600;
           return line;
         });
         state.endedIfLines = data.endedIfLines || [];
@@ -96,7 +102,6 @@
   function render() {
     if (!pluginContainer) return;
 
-    // 是否渲染全局外挂框架（大页头、底部 Dock）
     const showShell = !state.selectedConvoIdForNew && 
                       !(state.activeTab === "extend" && state.currentIfLineId) && 
                       !(state.activeTab === "backend" && state.viewingEndedLineId);
@@ -130,6 +135,17 @@
                   <option value="火辣" ${state.newIfForm.tone === "火辣" ? "selected" : ""}>火辣</option>
                 </select>
               </div>
+              
+              <!-- 线下回复字数强约束区间配置 -->
+              <div class="se-form-group">
+                <label>线下回复字数区间 (强约束，不截断)</label>
+                <div class="se-form-row">
+                  <input type="number" id="form-min-words" value="${state.newIfForm.minWords}" placeholder="最小字数" style="flex: 1;" />
+                  <span style="align-self: center; color: var(--se-text-muted);">至</span>
+                  <input type="number" id="form-max-words" value="${state.newIfForm.maxWords}" placeholder="最大字数" style="flex: 1;" />
+                </div>
+              </div>
+
               <div class="se-form-group">
                 <label>额外设定要求（高优先级）</label>
                 <textarea id="form-extra" placeholder="选填，例如：我们在咖啡馆偶遇，两人都装作不认识彼此……" rows="4">${state.newIfForm.extra}</textarea>
@@ -238,6 +254,21 @@
 
                 <div class="se-divider"></div>
 
+                <!-- 线下回复字数约束配置 -->
+                <div class="se-section-title">线下故事续写字数控制</div>
+                <div class="se-form-row">
+                  <div class="se-form-group">
+                    <label>最少生成字数</label>
+                    <input type="number" id="detail-snapshot-time" value="${currentIf.snapshotMinWords || 300}" placeholder="默认 300" />
+                  </div>
+                  <div class="se-form-group">
+                    <label>最多生成字数</label>
+                    <input type="number" id="detail-max-words" value="${currentIf.snapshotMaxWords || 500}" placeholder="例如 500" />
+                  </div>
+                </div>
+
+                <div class="se-divider"></div>
+
                 <div class="se-section-title">跨段总结 (第 M 至 N 段)</div>
                 <div class="se-form-row">
                   <div class="se-form-group">
@@ -260,9 +291,9 @@
 
                 <div class="se-divider"></div>
 
-                <!-- 时空快照可视化 (严格展现4个指定冻结字段) -->
-                <div class="se-section-title">时空记忆快照 (锁定于开启节点)</div>
-                <div class="se-panel-desc">本分支与主线脱钩，锁定在创建时该分支所获取的主线人设与记忆。</div>
+                <!-- 时空快照可视化展示 (严格依照4个字段排布) -->
+                <div class="se-section-title">时空记忆快照 (时空锚点1)</div>
+                <div class="se-panel-desc">创建此分支时冻结的主线上下文，用以防止主线剧情演进导致 OOC。</div>
                 <div class="se-snapshot-visualizer">
                   <div class="se-snapshot-item-block">
                     <div class="se-snapshot-sub-title">char人设</div>
@@ -278,13 +309,17 @@
                   </div>
                   <div class="se-snapshot-item-block">
                     <div class="se-snapshot-sub-title">事实记忆</div>
-                    <div class="se-snapshot-sub-body">${(currentIf.snapshot?.factsList || "").replace(/\n/g, "<br>") || "无主记忆事实事实"}</div>
+                    <div class="se-snapshot-sub-body">${(currentIf.snapshot?.factsList || "").replace(/\n/g, "<br>") || "无冻结事实记忆"}</div>
                   </div>
                 </div>
 
                 <div class="se-divider"></div>
 
-                <button class="se-btn-danger" id="btn-end-if">结束此 IF 线</button>
+                <!-- 删除此平行线和归档的排布 -->
+                <div class="se-form-row">
+                  <button class="se-btn-secondary" id="btn-delete-active-if" style="flex: 1; border-color: var(--se-danger); color: var(--se-danger);">删除此线</button>
+                  <button class="se-btn-danger" id="btn-end-if" style="flex: 1;">结束并归档</button>
+                </div>
               </div>
             </div>
           `;
@@ -359,13 +394,12 @@
                 ${msgListHtml}
               </div>
 
-              <div class="se-chat-footer">
-                <textarea id="chat-input" placeholder="${currentIf.mode === "online" ? "输入要发送的消息..." : "给下一个叙事段落添加行动指令..."}" rows="2"></textarea>
-                <div class="se-chat-footer-actions">
-                  <button class="se-btn-secondary" id="btn-send-msg" style="flex: 1;">发送输入</button>
-                  <button class="se-btn-primary" id="btn-trigger-ai" style="flex: 1;">
-                    ${currentIf.mode === "online" ? "获取对方回复" : "推进剧情叙事"}
-                  </button>
+              <!-- 重构后的自适应输入框结构，按钮在右侧横排缩微呈现 -->
+              <div class="se-chat-footer-reconstructed">
+                <textarea id="chat-input" placeholder="${currentIf.mode === "online" ? "输入消息发送..." : "输入叙事段落指令..."}" rows="1"></textarea>
+                <div class="se-chat-footer-buttons-aside">
+                  <button class="se-btn-icon-aside" id="btn-send-msg" title="发送上屏">${SVGS.send}</button>
+                  <button class="se-btn-icon-aside se-btn-primary-aside" id="btn-trigger-ai" title="AI推进/获取回复">${SVGS.generate}</button>
                 </div>
               </div>
             </div>
@@ -421,7 +455,6 @@
           `;
         }).join("");
 
-        // 重写后台查看逻辑，采用 100% 高度自适应视窗，展示所有记录
         mainContentHtml = `
           <div class="se-form-container se-backend-log-view">
             <div class="se-form-header">
@@ -429,7 +462,10 @@
               <div class="se-form-title">查看已归档的 IF 线记录：${endedIf.charName}</div>
             </div>
             <div class="se-form-body se-log-body-stretch">
-              <button class="se-btn-primary" id="btn-inject-main-mem">生成总结并注入宿主主记忆</button>
+              <div class="se-form-row" style="gap: 8px;">
+                <button class="se-btn-primary" id="btn-inject-main-mem" style="flex: 2;">生成总结并注入主记忆</button>
+                <button class="se-btn-secondary" id="btn-delete-ended-if" style="flex: 1; border-color: var(--se-danger); color: var(--se-danger);">删除存档</button>
+              </div>
               <div class="se-log-box">
                 ${logHtml}
               </div>
@@ -463,7 +499,6 @@
       }
     }
 
-    // 动态生成统一格式的动作过渡等待层
     let overlayText = "正在生成中...";
     if (state.activeTab === "select") overlayText = "平行时空引擎启动中...";
     if (state.activeTab === "extend") overlayText = "剧情深度续写中...";
@@ -617,8 +652,10 @@
         const timeVal = pluginContainer.querySelector("#form-time").value.trim() || "当下";
         const toneVal = pluginContainer.querySelector("#form-tone").value;
         const extraVal = pluginContainer.querySelector("#form-extra").value.trim();
+        const minWordsVal = parseInt(pluginContainer.querySelector("#form-min-words").value, 10) || 300;
+        const maxWordsVal = parseInt(pluginContainer.querySelector("#form-max-words").value, 10) || 600;
 
-        state.newIfForm = { time: timeVal, tone: toneVal, extra: extraVal };
+        state.newIfForm = { time: timeVal, tone: toneVal, extra: extraVal, minWords: minWordsVal, maxWords: maxWordsVal };
         state.isGenerating = true;
         render();
 
@@ -627,7 +664,7 @@
           const convo = state.conversations.find(c => c.id === convoId);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          // ==================== 快照冻结开始 (时空锚点1收集) ====================
+          // ==================== 快照冻结收集 ====================
           let charPersona = "";
           let charBio = "";
           try {
@@ -685,7 +722,6 @@
             factsList: factsListText,
             mainConvoContext: mainConvoContext
           };
-          // ==================== 快照固化完成 ====================
 
           const longTermText = `【核心主线记忆背景】：${coreMemory}\n【重要主线事实】：\n${factsListText}`;
 
@@ -709,6 +745,7 @@ ${mainConvoContext}
 
 请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
 【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
+【字数区间强约束】：请将本次生成的篇幅深度控制在 【${minWordsVal}字 至 ${maxWordsVal}字】 之间。客观叙写、不要在此区间外过度冗余或苍促结尾。不可强行截断。
 要求：文笔唯美细腻，直接开始正文描写，不要输出任何旁白，字数在400字左右。`;
 
           const response = await currentRoche.ai.chat({
@@ -739,7 +776,9 @@ ${mainConvoContext}
             ],
             mountedWorldbooks: [],
             summaries: [],
-            snapshot: snapshotSlice 
+            snapshot: snapshotSlice,
+            minWords: minWordsVal,
+            maxWords: maxWordsVal
           };
 
           state.activeIfLines.push(newIfLine);
@@ -797,7 +836,7 @@ ${mainConvoContext}
       };
     }
 
-    // 双击消息事件委托处理器（抗阻断、无遮挡精确寻源）
+    // 双击消息事件委托处理器
     const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
     if (scrollBox) {
       scrollBox.ondblclick = (e) => {
@@ -933,6 +972,7 @@ ${mainConvoContext}
 
 请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
 【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
+【字数区间强约束】：请将本次生成的篇幅深度控制在 【${currentIf.minWords || 300}字 至 ${currentIf.maxWords || 600}字】 之间。客观叙写、不要在此区间外过度冗余或苍促结尾。不可强行截断。
 要求：文笔唯美细腻，直接开始正文描写，不要输出任何旁白，字数在400字左右。`;
 
               const response = await currentRoche.ai.chat({
@@ -964,13 +1004,20 @@ ${mainConvoContext}
       };
     }
 
+    // 重构输入键盘Enter换行逻辑
     const chatInput = pluginContainer.querySelector("#chat-input");
     if (chatInput) {
+      const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
       chatInput.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          const sendBtn = pluginContainer.querySelector("#btn-send-msg");
-          if (sendBtn) sendBtn.click();
+        if (currentIf && currentIf.mode === "online") {
+          // 线上模式：回车直接上屏（仿微信）
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            const sendBtn = pluginContainer.querySelector("#btn-send-msg");
+            if (sendBtn) sendBtn.click();
+          }
+        } else {
+          // 线下叙事：回车作为天然换行符，不会触发上屏
         }
       };
     }
@@ -1006,7 +1053,7 @@ ${mainConvoContext}
         render();
 
         try {
-          // ==================== 冻结快照装载 (杜绝漂移及 OOC) ====================
+          // ==================== 冻结快照绝对防御 ====================
           const snapshot = currentIf.snapshot || {
             charPersona: "保持其一贯性格特点。",
             userPersona: "",
@@ -1019,7 +1066,6 @@ ${mainConvoContext}
           const userPersona = snapshot.userPersona;
           const longTermText = `【核心主线记忆背景】：${snapshot.coreMemory}\n【重要主线事实】：\n${snapshot.factsList}`;
           const mainConvoContext = snapshot.mainConvoContext;
-          // ==================== 冻结快照结束 ====================
 
           const historyText = currentIf.messages.map((m, idx) => {
             const sender = m.role === "user" ? "用户" : currentIf.charName;
@@ -1048,9 +1094,9 @@ ${mainConvoContext}
 
 【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
-【设定基调】：${currentIf.tone}
-// 设定绝对当前时间
+// 系统合并当前绝对时间 2026 年
 【当下绝对时间标尺】：2026年
+【设定基调】：${currentIf.tone}
 【额外强制指令】：${currentIf.extra}
 
 【挂载的世界书词条设定】：
@@ -1068,6 +1114,10 @@ ${historyText}
 
 严禁合并成大段话！必须输出用 [SPLIT] 隔开的连贯简短台词。严格保证角色人设本音，杜绝任何OOC行为。绝不携带叙事旁白或解释说明。`;
           } else {
+            // 线下续写 Prompt：引入字数区间强约束强提醒
+            const minWords = currentIf.minWords || 300;
+            const maxWords = currentIf.maxWords || 600;
+
             systemPrompt = `你是一个高级的小说剧情续写引擎。正在为角色 ${currentIf.charName} 与用户共同编写分支剧情。
 
 【重要：开启时冻结的角色背景人设 (切勿违背，杜绝OOC)】：
@@ -1084,9 +1134,12 @@ ${mainConvoContext}
 
 【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
-【设定基调】：${currentIf.tone}
 【当下绝对时间标尺】：2026年
+【设定基调】：${currentIf.tone}
 【额外强制指令】：${currentIf.extra}
+
+【字数区间强约束】：
+请将本次生成的篇幅深度控制在 【${minWords}字 至 ${maxWords}字】 之间。客观叙写、不要在此区间外过度冗余或苍促结尾。不可强行截断。
 
 【挂载的世界书词条设定】：
 ${wbCombined}
@@ -1189,6 +1242,41 @@ ${historyText}
         await savePluginState();
       };
     });
+
+    // 详情页监听：线下字数区间变更
+    const detailMinWords = pluginContainer.querySelector("#detail-snapshot-time");
+    const detailMaxWords = pluginContainer.querySelector("#detail-max-words");
+    if (detailMinWords && detailMaxWords) {
+      const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
+      const saveWords = async () => {
+        if (currentIf) {
+          currentIf.minWords = parseInt(detailMinWords.value, 10) || 300;
+          currentIf.maxWords = parseInt(detailMaxWords.value, 10) || 600;
+          await savePluginState();
+        }
+      };
+      detailMinWords.onchange = saveWords;
+      detailMaxWords.onchange = saveWords;
+    }
+
+    // 详情页操作：物理删除当前 IF 线
+    const btnDeleteActiveIf = pluginContainer.querySelector("#btn-delete-active-if");
+    if (btnDeleteActiveIf) {
+      btnDeleteActiveIf.onclick = async () => {
+        const ok = await currentRoche.ui.confirm({
+          title: "确认删除此平行分支？",
+          message: "删除后该分支的所有聊天和叙事记录将永久丢失（主线对话不受影响）。是否确认？"
+        });
+        if (ok) {
+          state.activeIfLines = state.activeIfLines.filter(x => x.id !== state.currentIfLineId);
+          state.currentIfLineId = null;
+          state.showingDetails = false;
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("分支删除成功");
+        }
+      };
+    }
 
     const btnGenSummary = pluginContainer.querySelector("#btn-gen-summary");
     if (btnGenSummary) {
@@ -1343,13 +1431,31 @@ ${historyText}
       };
     }
 
+    // 后台页操作：物理删除已结束的 IF 线
+    const btnDeleteEndedIf = pluginContainer.querySelector("#btn-delete-ended-if");
+    if (btnDeleteEndedIf) {
+      btnDeleteEndedIf.onclick = async () => {
+        const ok = await currentRoche.ui.confirm({
+          title: "确认删除此存档？",
+          message: "删除后该存档及所有的对话记录将永久丢失。是否确认？"
+        });
+        if (ok) {
+          state.endedIfLines = state.endedIfLines.filter(x => x.id !== state.viewingEndedLineId);
+          state.viewingEndedLineId = null;
+          await savePluginState();
+          render();
+          currentRoche.ui.toast("存档删除成功");
+        }
+      };
+    }
+
     const btnInjectMainMem = pluginContainer.querySelector("#btn-inject-main-mem");
     if (btnInjectMainMem) {
       btnInjectMainMem.onclick = async () => {
         const endedIf = state.endedIfLines.find(x => x.id === state.viewingEndedLineId);
         if (!endedIf) return;
 
-        state.isGenerating = true; // 加载遮罩提示自动触发
+        state.isGenerating = true; 
         render();
 
         try {
@@ -1384,8 +1490,6 @@ ${fullHistory}`
           });
 
           if (ok) {
-            // 将 AI 总结的事实同时赋值给 summaryText 和 action 属性
-            // 解决 Roche UI 卡片仅提取 action 渲染导致显示 generic 描述的问题
             await currentRoche.memory.write({
               conversationId: endedIf.conversationId,
               summaryText: memorySummary, 
@@ -1411,7 +1515,7 @@ ${fullHistory}`
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.6",
+    version: "1.0.7",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -1422,7 +1526,7 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态注入自适应明亮护眼样式表
+          // 1. 动态注入自适应样式
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
@@ -1725,7 +1829,7 @@ ${fullHistory}`
                 flex: 1;
               }
 
-              /* 后台归档查看高宽拉伸自适应 */
+              /* 后台归档查看拉伸自适应 */
               .se-backend-log-view {
                 height: 100%;
                 display: flex;
@@ -1804,7 +1908,7 @@ ${fullHistory}`
                 padding: 16px;
               }
 
-              /* 线上：微信 */
+              /* 线上微信对讲 */
               .se-chat-viewport-wechat {
                 background-color: #ededed !important; 
               }
@@ -1848,7 +1952,7 @@ ${fullHistory}`
                 border: 1px solid #83d45a;
               }
 
-              /* 线下：叙事 */
+              /* 线下文学 */
               .se-narrative-block {
                 padding: 16px;
                 background-color: #f1f5f9;
@@ -1871,7 +1975,7 @@ ${fullHistory}`
                 letter-spacing: 0.5px;
               }
 
-              /* 线下：指令框 */
+              /* 线下指令 */
               .se-narrative-block-user {
                 padding: 14px 16px;
                 background-color: #f8fafc;
@@ -1902,7 +2006,7 @@ ${fullHistory}`
                 border-radius: 8px;
               }
 
-              /* 时空快照可视化布局 */
+              /* 时空记忆快照 */
               .se-snapshot-visualizer {
                 display: flex;
                 flex-direction: column;
@@ -1996,80 +2100,60 @@ ${fullHistory}`
                 background-color: #fff;
               }
 
-              /* 底部输入 */
-              .se-chat-footer {
+              /* 重构后的右置微信化输入框布局 */
+              .se-chat-footer-reconstructed {
                 display: flex;
-                flex-direction: column;
+                align-items: flex-end;
                 gap: 8px;
                 border-top: 1px solid var(--se-border);
                 background-color: var(--se-surface);
                 padding: 12px 16px;
               }
-              .se-chat-footer textarea {
+              .se-chat-footer-reconstructed textarea {
+                flex: 1;
                 background-color: var(--se-bg);
                 border: 1px solid var(--se-border);
                 border-radius: 6px;
-                padding: 10px;
+                padding: 10px 12px;
                 color: var(--se-text);
                 font-size: 13.5px;
                 resize: none;
                 outline: none;
+                min-height: 40px;
+                max-height: 120px;
               }
-              .se-chat-footer textarea:focus {
-                border-color: var(--se-primary);
-                background-color: #fff;
-              }
-              .se-chat-footer-actions {
+              .se-chat-footer-buttons-aside {
                 display: flex;
-                gap: 8px;
+                gap: 6px;
+                align-items: center;
+                height: 40px;
               }
-
-              /* 按钮 */
-              .se-btn-primary, .se-btn-secondary, .se-btn-danger {
-                padding: 10px 16px;
-                font-size: 13px;
-                font-weight: 600;
+              .se-btn-icon-aside {
+                width: 36px;
+                height: 36px;
                 border-radius: 6px;
+                border: 1px solid var(--se-border);
+                background-color: var(--se-surface);
+                color: var(--se-text-muted);
                 cursor: pointer;
-                border: none;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 6px;
-                transition: opacity 0.2s;
+                transition: all 0.2s;
               }
-              .se-btn-primary { background-color: var(--se-primary); color: #fff; }
-              .se-btn-primary:hover { background-color: var(--se-primary-hover); }
-              .se-btn-secondary { background-color: var(--se-surface); color: var(--se-text); border: 1px solid var(--se-border); }
-              .se-btn-secondary:hover { background-color: #f1f5f9; }
-              .se-btn-danger { background-color: var(--se-danger); color: #fff; }
-              .se-btn-icon { background: none; border: none; color: var(--se-text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; }
-              .se-btn-icon:hover { color: var(--se-text); }
-              .se-btn-text { background: none; border: none; color: var(--se-primary); cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
-              .se-btn-text:hover { opacity: 0.8; }
-              .se-btn-text-sub { background: none; border: none; color: var(--se-text-muted); cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 2px; }
-              .se-btn-text-sub:hover { color: var(--se-text); }
-              .se-btn-small { padding: 6px 12px; font-size: 11px; align-self: flex-end; }
-              button:disabled { opacity: 0.5 !important; cursor: not-allowed !important; }
-
-              /* 世界书多选 */
-              .se-wb-selector {
-                display: flex;
-                flex-direction: column;
-                gap: 6px;
-                max-height: 120px;
-                overflow-y: auto;
-                border: 1px solid var(--se-border);
-                padding: 8px;
-                border-radius: 6px;
-                background: #fff;
+              .se-btn-icon-aside:hover {
+                color: var(--se-text);
+                background-color: var(--se-input-bg);
               }
-              .se-checkbox-label {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                font-size: 13px;
-                cursor: pointer;
+              .se-btn-primary-aside {
+                background-color: var(--se-primary);
+                color: #ffffff;
+                border-color: var(--se-primary);
+              }
+              .se-btn-primary-aside:hover {
+                background-color: var(--se-primary-hover);
+                color: #ffffff;
+                border-color: var(--se-primary-hover);
               }
 
               .se-divider { height: 1px; background-color: var(--se-border); margin: 8px 0; }
