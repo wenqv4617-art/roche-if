@@ -12,21 +12,22 @@
     arrowLeft: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>`,
     settings: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
     trash: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
-    checkmark: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`
+    checkmark: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+    close: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`
   };
 
   // 插件状态定义
   let state = {
-    activeTab: "select", // select | extend | backend
-    conversations: [], // 同步过来的 Roche 原始会话
+    activeTab: "select", 
+    conversations: [], // 同步并存储在本地的会话
     activeIfLines: [], // 进行中的 IF 线
     endedIfLines: [],  // 已结束的 IF 线
 
     // 交互辅助状态
-    currentIfLineId: null, // 当前“续约”页正在查看的 IF 线 ID
-    selectedConvoIdForNew: null, // “选择”页点进具体对话，准备开启引擎的会话 ID
-    isGenerating: false, // 对方回复中的状态锁定
-    showingDetails: false, // “续约”页右上角详情页显隐
+    currentIfLineId: null, 
+    selectedConvoIdForNew: null, 
+    isGenerating: false, 
+    showingDetails: false, 
 
     // 新建 IF 线的暂存表单
     newIfForm: {
@@ -40,7 +41,7 @@
       sumFrom: 1,
       sumTo: 3,
       summaryResult: "",
-      worldbooks: [] // 可供挂载的世界书列表
+      worldbooks: [] 
     },
 
     // 后台页查看特定已结束线
@@ -53,7 +54,8 @@
     try {
       await currentRoche.storage.set("story_engine_data", {
         activeIfLines: state.activeIfLines,
-        endedIfLines: state.endedIfLines
+        endedIfLines: state.endedIfLines,
+        conversations: state.conversations // 保存同步过的会话
       });
     } catch (e) {
       console.error("Failed to save Story Engine state:", e);
@@ -68,17 +70,19 @@
       if (data) {
         state.activeIfLines = data.activeIfLines || [];
         state.endedIfLines = data.endedIfLines || [];
+        state.conversations = data.conversations || [];
       }
     } catch (e) {
       console.error("Failed to load Story Engine state:", e);
     }
   }
 
-  // 同步 Roche 会话进度
+  // 仅在手动点击同步当前进度时触发
   async function syncConversations() {
     if (!currentRoche) return;
     try {
       state.conversations = await currentRoche.conversation.list() || [];
+      await savePluginState();
       render();
       currentRoche.ui.toast("对话同步成功");
     } catch (e) {
@@ -97,10 +101,10 @@
 
     let mainContentHtml = "";
 
-    // 1. 渲染：选择页 (Select Tab)
+    // 1. 选择页 (Select Tab)
     if (state.activeTab === "select") {
       if (state.selectedConvoIdForNew) {
-        // 渲染开启引擎配置表单
+        // 渲染配置表单
         const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
         const name = convo ? (convo.title || convo.name || "未知对话") : "当前对话";
         mainContentHtml = `
@@ -163,7 +167,7 @@
       }
     }
 
-    // 2. 渲染：续约页 (Extend Tab)
+    // 2. 续约页 (Extend Tab)
     else if (state.activeTab === "extend") {
       if (state.currentIfLineId) {
         const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
@@ -283,14 +287,14 @@
         // 无选中的 IF 线，展示列表中
         const activeIfsHtml = state.activeIfLines.map(item => {
           return `
-            <div class="se-if-card" data-id="${item.id}">
+            <div class="se-active-if-card" data-id="${item.id}">
               <div class="se-if-card-title">${item.charName} 平行宇宙</div>
               <div class="se-if-card-meta">
                 <span>时间: ${item.time}</span>
                 <span>基调: ${item.tone}</span>
                 <span>长度: ${item.messages.length} 段</span>
               </div>
-              <div class="se-if-card-desc">${item.messages[item.messages.length - 1]?.text.substring(0, 60)}...</div>
+              <div class="se-if-card-desc">${item.messages[item.messages.length - 1]?.text.substring(0, 65)}...</div>
             </div>
           `;
         }).join("");
@@ -349,7 +353,7 @@
       } else {
         const endedIfsHtml = state.endedIfLines.map(item => {
           return `
-            <div class="se-if-card" data-id="${item.id}">
+            <div class="se-ended-if-card" data-id="${item.id}">
               <div class="se-if-card-title">${item.charName} (已结案)</div>
               <div class="se-if-card-meta">
                 <span>设定时间: ${item.time}</span>
@@ -409,14 +413,14 @@
     // 绑定所有的 DOM 交互事件
     bindAllEvents();
 
-    // 滚动条自动最底（如果处于聊天交互态中）
+    // 滚动条自动最底
     const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
     if (scrollBox) {
       scrollBox.scrollTop = scrollBox.scrollHeight;
     }
   }
 
-  // 获取世界书内容拼合
+  // 获取世界书内容
   async function fetchWorldbookText(wbIds) {
     if (!currentRoche || !wbIds || wbIds.length === 0) return "无挂载世界书词条。";
     try {
@@ -436,7 +440,7 @@
     }
   }
 
-  // 绑定事件处理器（由于每次重绘，事件都要重新绑定）
+  // 绑定事件处理器
   function bindAllEvents() {
     if (!pluginContainer || !currentRoche) return;
 
@@ -499,7 +503,7 @@
           const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          // 获取记忆作为上下文背景
+          // 获取长文本记忆
           const memories = await currentRoche.memory.getLongTerm({
             conversationId: state.selectedConvoIdForNew,
             limit: 40
@@ -519,7 +523,7 @@
 ${backgroundContext}
 
 请在此分支下，直接以【线下小说体裁】（第三人称叙述角色 ${charName}，第二人称“你”代指用户）撰写第一幕开局起承。
-要求：文笔唯美细腻、情节自然衔接，不要输出任何旁白，直接开启正文描写，字数在400字左右。`;
+要求：文笔细腻、情节自然、注重内心变化，不要输出任何旁白与多余释义，直接开启正文描写，字数在400字左右。`;
 
           const response = await currentRoche.ai.chat({
             messages: [
@@ -531,7 +535,6 @@ ${backgroundContext}
 
           const storyText = response.text || "引擎启动失败，未能获取到开局正文。";
 
-          // 创建一条新的 IF 线
           const newIfLine = {
             id: "if-" + crypto.randomUUID(),
             conversationId: state.selectedConvoIdForNew,
@@ -539,7 +542,7 @@ ${backgroundContext}
             time: timeVal,
             tone: toneVal,
             extra: extraVal,
-            mode: "offline", // 默认先以下线叙事开局
+            mode: "offline", 
             messages: [
               {
                 role: "assistant",
@@ -557,7 +560,7 @@ ${backgroundContext}
           currentRoche.ui.toast("IF 剧情引擎成功点火！");
           state.currentIfLineId = newIfLine.id;
           state.selectedConvoIdForNew = null;
-          state.activeTab = "extend"; // 开启后切换到续约页
+          state.activeTab = "extend"; 
         } catch (err) {
           console.error(err);
           currentRoche.ui.toast("AI 引擎点火异常");
@@ -569,7 +572,8 @@ ${backgroundContext}
     }
 
     // --- 2. 续约页事件 ---
-    const activeIfCards = pluginContainer.querySelectorAll(".se-if-card");
+    // 点击进行中的卡片：进入续写状态
+    const activeIfCards = pluginContainer.querySelectorAll(".se-active-if-card");
     activeIfCards.forEach(card => {
       card.onclick = () => {
         state.currentIfLineId = card.getAttribute("data-id");
@@ -637,7 +641,6 @@ ${backgroundContext}
         render();
 
         try {
-          // 整理历史记录
           const historyText = currentIf.messages.map((m, idx) => {
             const sender = m.role === "user" ? "用户" : currentIf.charName;
             const modeName = m.mode === "online" ? "[线上对话]" : "[线下叙事]";
@@ -660,7 +663,7 @@ ${wbCombined}
 【剧情与对话往期历史】：
 ${historyText}
 
-请在当前“线上对话”模式下，以【第一人称】口吻撰写你作为角色 ${currentIf.charName} 此时此刻最符合人设和当下心境的对话回复。直接输出台词，不要输出任何旁白或动作描写。`;
+请在当前“线上对话”模式下，以【第一人称】口吻撰写你作为角色 ${currentIf.charName} 此时此刻最符合人设的对话回复。直接输出台词回复，不要输出任何旁白或动作动作。`;
           } else {
             systemPrompt = `你是一个高级的小说剧情续写引擎。正在为角色 ${currentIf.charName} 与用户共同编写分支剧情。
 【设定时间】：${currentIf.time}
@@ -674,7 +677,7 @@ ${wbCombined}
 ${historyText}
 
 请在当前“线下叙事”模式下，继续编写下一阶段的小说长文故事推进。
-要求：使用第三人称指代 ${currentIf.charName}，第二人称“你”指代用户。进行深度的情景叙事，推进你们的关系或当前冲突。不要输出任何题外话或前言旁白。`;
+要求：使用第三人称指代 ${currentIf.charName}，第二人称“你”指代用户。进行深度的情景叙事，推进你们的关系。不要输出任何题外话或前言旁白。`;
           }
 
           const response = await currentRoche.ai.chat({
@@ -709,7 +712,6 @@ ${historyText}
     const btnOpenDetails = pluginContainer.querySelector("#btn-open-details");
     if (btnOpenDetails) {
       btnOpenDetails.onclick = async () => {
-        // 加载当前可挂载的世界书
         try {
           const wbs = await currentRoche.worldbook.list() || [];
           state.detailsState.worldbooks = wbs;
@@ -764,7 +766,6 @@ ${historyText}
         render();
 
         try {
-          // 截取特定段落
           const segmentText = currentIf.messages.slice(fromVal - 1, toVal).map((m, i) => {
             const num = fromVal + i;
             const sender = m.role === "user" ? "用户" : currentIf.charName;
@@ -775,7 +776,7 @@ ${historyText}
             messages: [
               {
                 role: "system",
-                content: `请对以下指定区间的剧情记录进行高度精简、连贯生动的概要总结（150字左右），注意不漏掉关键的人物情感和事件转变：\n\n${segmentText}`
+                content: `请对以下指定区间的剧情记录进行精简、连贯生动的概要总结（150字左右），注意不漏掉关键的人物情感和事件转变：\n\n${segmentText}`
               }
             ],
             temperature: 0.7
@@ -806,9 +807,7 @@ ${historyText}
         if (ok) {
           const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
           if (currentIf) {
-            // 移出进行中列表
             state.activeIfLines = state.activeIfLines.filter(x => x.id !== currentIf.id);
-            // 压入已结束列表
             state.endedIfLines.push(currentIf);
             await savePluginState();
 
@@ -823,7 +822,8 @@ ${historyText}
     }
 
     // --- 3. 后台归档页事件 ---
-    const endedIfCards = pluginContainer.querySelectorAll(".se-if-card");
+    // 点击已结束的卡片：进入记录查看
+    const endedIfCards = pluginContainer.querySelectorAll(".se-ended-if-card");
     endedIfCards.forEach(card => {
       card.onclick = () => {
         state.viewingEndedLineId = card.getAttribute("data-id");
@@ -906,7 +906,7 @@ ${fullHistory}`
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.0",
+    version: "1.0.1",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -917,25 +917,25 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态插入局部样式
+          // 1. 动态插入温和浅色调样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
             styleEl = document.createElement("style");
             styleEl.id = styleId;
             styleEl.innerHTML = `
-              /* 极致现代简约黑暗风样式表，完美避免全局污染 */
+              /* 护眼现代明亮色系样式表，温和无刺眼对比 */
               .roche-plugin-story-engine {
-                --se-bg: #09090b;
-                --se-surface: #18181b;
-                --se-border: #27272a;
-                --se-text: #f4f4f5;
-                --se-text-muted: #a1a1aa;
-                --se-primary: #6366f1;
-                --se-primary-hover: #4f46e5;
-                --se-danger: #ef4444;
+                --se-bg: #f8fafc; /* 优雅柔和石板灰 */
+                --se-surface: #ffffff; /* 纯白面板 */
+                --se-border: #e2e8f0; /* 细腻浅灰边框 */
+                --se-text: #0f172a; /* 深 slate 灰文本 */
+                --se-text-muted: #64748b; /* 优雅中灰文本 */
+                --se-primary: #4f46e5; /* 靛蓝主色 */
+                --se-primary-hover: #4338ca; 
+                --se-danger: #ef4444; 
                 --se-success: #10b981;
-                --se-input-bg: #09090b;
+                --se-input-bg: #f1f5f9; /* 浅输入框背景 */
                 
                 display: flex;
                 flex-direction: column;
@@ -947,7 +947,7 @@ ${fullHistory}`
                 overflow: hidden;
               }
 
-              /* 顶栏与状态过渡 */
+              /* 顶栏 */
               .se-header {
                 height: 56px;
                 display: flex;
@@ -959,7 +959,7 @@ ${fullHistory}`
                 position: relative;
               }
               .se-header-loading {
-                background: linear-gradient(90deg, #18181b 0%, #312e81 50%, #18181b 100%);
+                background: linear-gradient(90deg, #ffffff 0%, #e0e7ff 50%, #ffffff 100%);
                 background-size: 200% 100%;
                 animation: se-glow 1.5s infinite linear;
               }
@@ -981,7 +981,7 @@ ${fullHistory}`
                 flex-direction: column;
               }
 
-              /* 简约面板与卡片 */
+              /* 简约面板 */
               .se-panel {
                 display: flex;
                 flex-direction: column;
@@ -1002,7 +1002,7 @@ ${fullHistory}`
                 line-height: 1.5;
               }
 
-              /* 对话与卡片列表 */
+              /* 列表 */
               .se-list-container {
                 display: flex;
                 flex-direction: column;
@@ -1021,7 +1021,7 @@ ${fullHistory}`
                 transition: background-color 0.2s;
               }
               .se-convo-item:hover {
-                background-color: #242427;
+                background-color: #f1f5f9;
               }
               .se-convo-avatar {
                 width: 40px;
@@ -1050,8 +1050,8 @@ ${fullHistory}`
                 color: var(--se-text-muted);
               }
 
-              /* IF 卡片 */
-              .se-if-card {
+              /* IF 卡片（进行中 & 已归档） */
+              .se-active-if-card, .se-ended-if-card {
                 padding: 16px;
                 border: 1px solid var(--se-border);
                 border-radius: 8px;
@@ -1060,9 +1060,10 @@ ${fullHistory}`
                 display: flex;
                 flex-direction: column;
                 gap: 8px;
+                transition: background-color 0.2s;
               }
-              .se-if-card:hover {
-                background-color: #242427;
+              .se-active-if-card:hover, .se-ended-if-card:hover {
+                background-color: #f1f5f9;
               }
               .se-if-card-title {
                 font-weight: 700;
@@ -1080,7 +1081,7 @@ ${fullHistory}`
                 line-height: 1.4;
               }
 
-              /* 新建表单 */
+              /* 表单 */
               .se-form-container {
                 display: flex;
                 flex-direction: column;
@@ -1112,7 +1113,7 @@ ${fullHistory}`
                 font-weight: 500;
               }
               .se-form-group input, .se-form-group select, .se-form-group textarea {
-                background-color: var(--se-input-bg);
+                background-color: var(--se-surface);
                 border: 1px solid var(--se-border);
                 border-radius: 6px;
                 padding: 10px;
@@ -1122,6 +1123,7 @@ ${fullHistory}`
               }
               .se-form-group input:focus, .se-form-group select:focus, .se-form-group textarea:focus {
                 border-color: var(--se-primary);
+                background-color: #fff;
               }
 
               /* 交互聊天室 */
@@ -1150,7 +1152,7 @@ ${fullHistory}`
               }
               .se-chat-mode-toggle {
                 display: flex;
-                background-color: var(--se-bg);
+                background-color: var(--se-input-bg);
                 border: 1px solid var(--se-border);
                 border-radius: 6px;
                 padding: 2px;
@@ -1168,6 +1170,7 @@ ${fullHistory}`
               .se-toggle-item.active {
                 background-color: var(--se-surface);
                 color: var(--se-text);
+                box-shadow: 0 1px 2px rgba(0,0,0,0.05);
               }
               .se-chat-messages {
                 flex: 1;
@@ -1179,7 +1182,7 @@ ${fullHistory}`
                 margin-bottom: 12px;
               }
 
-              /* 线上气泡气泡样式 */
+              /* 线上气泡样式 */
               .se-bubble-wrapper {
                 display: flex;
                 flex-direction: column;
@@ -1210,16 +1213,18 @@ ${fullHistory}`
                 font-size: 14px;
                 line-height: 1.5;
                 word-break: break-all;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.02);
               }
               .se-bubble-right .se-bubble-box {
                 background-color: var(--se-primary);
                 border-color: var(--se-primary);
+                color: #ffffff;
               }
 
               /* 线下文学创作样式 */
               .se-narrative-block {
                 padding: 16px;
-                background-color: #0c0a09;
+                background-color: #f1f5f9;
                 border-left: 3px solid var(--se-primary);
                 margin: 4px 0;
                 border-radius: 0 8px 8px 0;
@@ -1234,7 +1239,7 @@ ${fullHistory}`
                 font-family: "Georgia", "Source Han Serif SC", serif;
                 font-size: 15px;
                 line-height: 1.8;
-                color: #e4e4e7;
+                color: #334155;
                 letter-spacing: 0.5px;
               }
 
@@ -1261,7 +1266,7 @@ ${fullHistory}`
                 gap: 8px;
               }
 
-              /* 极简基础按钮 */
+              /* 按钮 */
               .se-btn-primary, .se-btn-secondary, .se-btn-danger {
                 padding: 10px 16px;
                 font-size: 13px;
@@ -1278,7 +1283,7 @@ ${fullHistory}`
               .se-btn-primary { background-color: var(--se-primary); color: #fff; }
               .se-btn-primary:hover { background-color: var(--se-primary-hover); }
               .se-btn-secondary { background-color: var(--se-surface); color: var(--se-text); border: 1px solid var(--se-border); }
-              .se-btn-secondary:hover { background-color: #242427; }
+              .se-btn-secondary:hover { background-color: #f1f5f9; }
               .se-btn-danger { background-color: var(--se-danger); color: #fff; }
               .se-btn-icon { background: none; border: none; color: var(--se-text-muted); cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; }
               .se-btn-icon:hover { color: var(--se-text); }
@@ -1296,6 +1301,7 @@ ${fullHistory}`
                 border: 1px solid var(--se-border);
                 padding: 8px;
                 border-radius: 6px;
+                background: #fff;
               }
               .se-checkbox-label {
                 display: flex;
@@ -1306,16 +1312,16 @@ ${fullHistory}`
               }
 
               .se-divider { height: 1px; background-color: var(--se-border); margin: 8px 0; }
-              .se-summary-box { background-color: #1c1917; border: 1px dashed var(--se-border); padding: 12px; border-radius: 6px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+              .se-summary-box { background-color: #fef3c7; border: 1px dashed #f59e0b; padding: 12px; border-radius: 6px; font-size: 13px; display: flex; flex-direction: column; gap: 6px; color: #78350f; }
 
               /* 归档查看 */
-              .se-log-box { display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; border: 1px solid var(--se-border); padding: 10px; border-radius: 6px; }
+              .se-log-box { display: flex; flex-direction: column; gap: 12px; max-height: 320px; overflow-y: auto; border: 1px solid var(--se-border); padding: 10px; border-radius: 6px; background-color: #fff; }
               .se-log-item { display: flex; flex-direction: column; gap: 4px; border-bottom: 1px solid var(--se-border); padding-bottom: 8px; }
               .se-log-meta { font-size: 11px; color: var(--se-primary); font-weight: 600; }
-              .se-log-text { font-size: 13px; line-height: 1.5; color: #d4d4d8; }
+              .se-log-text { font-size: 13px; line-height: 1.5; color: #334155; }
 
               /* 空白占位 */
-              .se-empty { padding: 40px 16px; text-align: center; color: var(--se-text-muted); font-size: 13px; border: 1px dashed var(--se-border); border-radius: 8px; }
+              .se-empty { padding: 40px 16px; text-align: center; color: var(--se-text-muted); font-size: 13px; border: 1px dashed var(--se-border); border-radius: 8px; background: #fff; }
               .se-empty-sub { text-align: center; color: var(--se-text-muted); font-size: 12px; padding: 12px 0; }
 
               /* 全局底部 DOCK 栏 */
@@ -1348,22 +1354,20 @@ ${fullHistory}`
             document.head.appendChild(styleEl);
           }
 
-          // 2. 初始化加载存储数据与对话
+          // 2. 静默载入已保存的数据（不再自动同步）
           await loadPluginState();
-          await syncConversations();
 
-          // 3. 执行首屏渲染
+          // 3. 初始首屏渲染
           render();
         },
         async unmount(container, roche) {
-          // 彻底清理避免内存泄漏
           if (container) {
             container.replaceChildren();
           }
           currentRoche = null;
           pluginContainer = null;
 
-          // 移除挂载的插件样式表
+          // 销毁并移除临时注入的浅色护眼样式
           const styleEl = document.getElementById("se-plugin-style");
           if (styleEl) styleEl.remove();
         }
