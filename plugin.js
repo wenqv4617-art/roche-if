@@ -19,9 +19,9 @@
   // 插件状态定义
   let state = {
     activeTab: "select", 
-    conversations: [], // 同步并存储在本地的会话
-    activeIfLines: [], // 进行中的 IF 线
-    endedIfLines: [],  // 已结束的 IF 线
+    conversations: [], 
+    activeIfLines: [], 
+    endedIfLines: [],  
 
     // 交互辅助状态
     currentIfLineId: null, 
@@ -29,14 +29,12 @@
     isGenerating: false, 
     showingDetails: false, 
 
-    // 新建 IF 线的暂存表单
     newIfForm: {
       time: "当下",
       tone: "浪漫",
       extra: ""
     },
 
-    // 详情页辅助暂存
     detailsState: {
       sumFrom: 1,
       sumTo: 3,
@@ -44,25 +42,22 @@
       worldbooks: [] 
     },
 
-    // 后台页查看特定已结束线
     viewingEndedLineId: null
   };
 
-  // 写入存储
   async function savePluginState() {
     if (!currentRoche) return;
     try {
       await currentRoche.storage.set("story_engine_data", {
         activeIfLines: state.activeIfLines,
         endedIfLines: state.endedIfLines,
-        conversations: state.conversations // 保存同步过的会话
+        conversations: state.conversations 
       });
     } catch (e) {
       console.error("Failed to save Story Engine state:", e);
     }
   }
 
-  // 读取存储
   async function loadPluginState() {
     if (!currentRoche) return;
     try {
@@ -77,7 +72,6 @@
     }
   }
 
-  // 仅在手动点击同步当前进度时触发
   async function syncConversations() {
     if (!currentRoche) return;
     try {
@@ -95,7 +89,11 @@
   function render() {
     if (!pluginContainer) return;
 
-    // 更新顶栏“对方回复中”的过渡样式
+    // 是否需要渲染外层的主菜单框架（页头、页脚Dock）
+    const showShell = !state.selectedConvoIdForNew && 
+                      !(state.activeTab === "extend" && state.currentIfLineId) && 
+                      !(state.activeTab === "backend" && state.viewingEndedLineId);
+
     const headerClass = state.isGenerating ? "se-header-loading" : "";
     const headerTitleText = state.isGenerating ? "对方回复中…" : "剧情引擎";
 
@@ -104,7 +102,6 @@
     // 1. 选择页 (Select Tab)
     if (state.activeTab === "select") {
       if (state.selectedConvoIdForNew) {
-        // 渲染配置表单
         const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
         const name = convo ? (convo.title || convo.name || "未知对话") : "当前对话";
         mainContentHtml = `
@@ -137,7 +134,6 @@
           </div>
         `;
       } else {
-        // 渲染对话列表
         const listHtml = state.conversations.map(c => {
           const avatarHtml = c.avatar ? `<img src="${c.avatar}" class="se-convo-avatar" />` : `<div class="se-convo-avatar-placeholder"></div>`;
           const displayName = c.title || c.name || "未命名对话";
@@ -178,7 +174,6 @@
         }
 
         if (state.showingDetails) {
-          // 渲染详情页设置
           const wbOptionsHtml = state.detailsState.worldbooks.map(wb => {
             const isChecked = currentIf.mountedWorldbooks && currentIf.mountedWorldbooks.includes(wb.id);
             return `
@@ -229,36 +224,44 @@
             </div>
           `;
         } else {
-          // 渲染交互主聊天窗
+          // 对话核心逻辑：处理用户输入即时上屏
           const msgListHtml = currentIf.messages.map((m, idx) => {
             if (m.mode === "offline") {
-              // 线下模式：第三人称长叙事优雅样式
+              const isUser = m.role === "user";
+              const label = isUser ? "你的行动/指令" : "剧情续写叙事";
+              const blockClass = isUser ? "se-narrative-block-user" : "se-narrative-block";
               return `
-                <div class="se-narrative-block">
-                  <div class="se-narrative-meta">#${idx + 1} 线下续写叙事</div>
+                <div class="${blockClass}">
+                  <div class="se-narrative-meta">#${idx + 1} ${label}</div>
                   <div class="se-narrative-text">${m.text.replace(/\n/g, "<br>")}</div>
                 </div>
               `;
             } else {
-              // 线上模式：对话气泡
+              // 微信高仿气泡布局
               const isUser = m.role === "user";
               const sideClass = isUser ? "se-bubble-right" : "se-bubble-left";
-              const sender = isUser ? "我" : currentIf.charName;
+              const senderName = isUser ? "我" : currentIf.charName;
               return `
                 <div class="se-bubble-wrapper ${sideClass}">
-                  <div class="se-bubble-sender">${sender} <span class="se-bubble-num">#${idx + 1}</span></div>
+                  <div class="se-bubble-sender">${senderName} <span class="se-bubble-num">#${idx + 1}</span></div>
                   <div class="se-bubble-box">${m.text.replace(/\n/g, "<br>")}</div>
                 </div>
               `;
             }
           }).join("");
 
+          // 为微信风格特别切换包裹类名
+          const chatViewportClass = currentIf.mode === "online" ? "se-chat-messages se-chat-viewport-wechat" : "se-chat-messages";
+
+          // 在头部的“状态文本”中集成“正在回复”字样以示过渡
+          const middleTitle = state.isGenerating ? "对方回复中…" : `${currentIf.charName} (IF线)`;
+
           mainContentHtml = `
             <div class="se-chat-container">
               <div class="se-chat-header">
                 <button class="se-btn-icon" id="btn-back-to-ifs">${SVGS.arrowLeft}</button>
                 <div class="se-chat-title-wrapper">
-                  <div class="se-chat-title">${currentIf.charName} (IF线)</div>
+                  <div class="se-chat-title">${middleTitle}</div>
                   <div class="se-chat-mode-toggle">
                     <button class="se-toggle-item ${currentIf.mode === "online" ? "active" : ""}" id="toggle-mode-online">线上模式</button>
                     <button class="se-toggle-item ${currentIf.mode === "offline" ? "active" : ""}" id="toggle-mode-offline">线下叙事</button>
@@ -267,12 +270,12 @@
                 <button class="se-btn-icon" id="btn-open-details">${SVGS.settings}</button>
               </div>
               
-              <div class="se-chat-messages" id="chat-messages-scroll">
+              <div class="${chatViewportClass}" id="chat-messages-scroll">
                 ${msgListHtml}
               </div>
 
               <div class="se-chat-footer">
-                <textarea id="chat-input" placeholder="${currentIf.mode === "online" ? "输入多条你想说的话（线上模式）..." : "给下一个叙事段落添加行动指令（可选）..."}" rows="2"></textarea>
+                <textarea id="chat-input" placeholder="${currentIf.mode === "online" ? "输入要发送的消息..." : "给下一个叙事段落添加行动指令..."}" rows="2"></textarea>
                 <div class="se-chat-footer-actions">
                   <button class="se-btn-secondary" id="btn-send-msg" style="flex: 1;">发送输入</button>
                   <button class="se-btn-primary" id="btn-trigger-ai" style="flex: 1;">
@@ -284,7 +287,6 @@
           `;
         }
       } else {
-        // 无选中的 IF 线，展示列表中
         const activeIfsHtml = state.activeIfLines.map(item => {
           return `
             <div class="se-active-if-card" data-id="${item.id}">
@@ -377,50 +379,58 @@
       }
     }
 
-    // 核心骨架 HTML
-    pluginContainer.innerHTML = `
-      <div class="roche-plugin-story-engine">
-        <!-- 全局顶栏 -->
-        <div class="se-header ${headerClass}">
-          <div class="se-header-indicator"></div>
-          <div class="se-header-text">${headerTitleText}</div>
-          <button class="se-btn-icon" id="btn-close-app">${SVGS.close}</button>
-        </div>
+    // 根据页面层级关系决定外壳组件的显隐
+    if (showShell) {
+      pluginContainer.innerHTML = `
+        <div class="roche-plugin-story-engine">
+          <!-- 全局顶栏 -->
+          <div class="se-header ${headerClass}">
+            <div class="se-header-indicator"></div>
+            <div class="se-header-text">${headerTitleText}</div>
+            <button class="se-btn-icon" id="btn-close-app">${SVGS.close}</button>
+          </div>
 
-        <!-- 渲染主页面 -->
-        <div class="se-main">
-          ${mainContentHtml}
-        </div>
+          <!-- 渲染主页面 -->
+          <div class="se-main">
+            ${mainContentHtml}
+          </div>
 
-        <!-- 底部 Dock 切换 -->
-        <div class="se-dock">
-          <button class="se-dock-item ${state.activeTab === "select" ? "active" : ""}" id="dock-tab-select">
-            ${SVGS.select}
-            <span>选择</span>
-          </button>
-          <button class="se-dock-item ${state.activeTab === "extend" ? "active" : ""}" id="dock-tab-extend">
-            ${SVGS.extend}
-            <span>续约</span>
-          </button>
-          <button class="se-dock-item ${state.activeTab === "backend" ? "active" : ""}" id="dock-tab-backend">
-            ${SVGS.backend}
-            <span>后台</span>
-          </button>
+          <!-- 底部 Dock 切换 -->
+          <div class="se-dock">
+            <button class="se-dock-item ${state.activeTab === "select" ? "active" : ""}" id="dock-tab-select">
+              ${SVGS.select}
+              <span>选择</span>
+            </button>
+            <button class="se-dock-item ${state.activeTab === "extend" ? "active" : ""}" id="dock-tab-extend">
+              ${SVGS.extend}
+              <span>续约</span>
+            </button>
+            <button class="se-dock-item ${state.activeTab === "backend" ? "active" : ""}" id="dock-tab-backend">
+              ${SVGS.backend}
+              <span>后台</span>
+            </button>
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    } else {
+      // 沉浸式子页面：无顶头大栏、无Dock底栏，空间使用率最大化
+      pluginContainer.innerHTML = `
+        <div class="roche-plugin-story-engine">
+          <div class="se-main se-main-full">
+            ${mainContentHtml}
+          </div>
+        </div>
+      `;
+    }
 
-    // 绑定所有的 DOM 交互事件
     bindAllEvents();
 
-    // 滚动条自动最底
     const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
     if (scrollBox) {
       scrollBox.scrollTop = scrollBox.scrollHeight;
     }
   }
 
-  // 获取世界书内容
   async function fetchWorldbookText(wbIds) {
     if (!currentRoche || !wbIds || wbIds.length === 0) return "无挂载世界书词条。";
     try {
@@ -444,27 +454,39 @@
   function bindAllEvents() {
     if (!pluginContainer || !currentRoche) return;
 
-    // --- 全局顶栏和 Dock 切换 ---
-    pluginContainer.querySelector("#btn-close-app").onclick = () => currentRoche.ui.closeApp();
+    // --- 框架外壳层绑定 ---
+    const btnCloseApp = pluginContainer.querySelector("#btn-close-app");
+    if (btnCloseApp) {
+      btnCloseApp.onclick = () => currentRoche.ui.closeApp();
+    }
 
-    pluginContainer.querySelector("#dock-tab-select").onclick = () => {
-      if (state.isGenerating) return;
-      state.activeTab = "select";
-      state.selectedConvoIdForNew = null;
-      render();
-    };
-    pluginContainer.querySelector("#dock-tab-extend").onclick = () => {
-      if (state.isGenerating) return;
-      state.activeTab = "extend";
-      state.showingDetails = false;
-      render();
-    };
-    pluginContainer.querySelector("#dock-tab-backend").onclick = () => {
-      if (state.isGenerating) return;
-      state.activeTab = "backend";
-      state.viewingEndedLineId = null;
-      render();
-    };
+    const tabSelect = pluginContainer.querySelector("#dock-tab-select");
+    if (tabSelect) {
+      tabSelect.onclick = () => {
+        if (state.isGenerating) return;
+        state.activeTab = "select";
+        state.selectedConvoIdForNew = null;
+        render();
+      };
+    }
+    const tabExtend = pluginContainer.querySelector("#dock-tab-extend");
+    if (tabExtend) {
+      tabExtend.onclick = () => {
+        if (state.isGenerating) return;
+        state.activeTab = "extend";
+        state.showingDetails = false;
+        render();
+      };
+    }
+    const tabBackend = pluginContainer.querySelector("#dock-tab-backend");
+    if (tabBackend) {
+      tabBackend.onclick = () => {
+        if (state.isGenerating) return;
+        state.activeTab = "backend";
+        state.viewingEndedLineId = null;
+        render();
+      };
+    }
 
     // --- 1. 选择页事件 ---
     const btnSyncConvo = pluginContainer.querySelector("#btn-sync-convo");
@@ -503,7 +525,6 @@
           const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          // 获取长文本记忆
           const memories = await currentRoche.memory.getLongTerm({
             conversationId: state.selectedConvoIdForNew,
             limit: 40
@@ -513,6 +534,7 @@
           const factsText = (memories?.facts || []).map(f => f.summaryText || f.action || "").join("\n");
           const backgroundContext = `${coreText}\n${factsText}`;
 
+          // 初始化 Prompt：加入强烈的“禁止替用户行动/对话描述”禁令约束
           const systemPrompt = `你是一个平行宇宙剧情出线启动器。
 正在为角色 [${charName}] 和 用户 开启一个新的剧情分支：
 【时间基准】：${timeVal}
@@ -522,8 +544,9 @@
 【主线已知的记忆和人设基础背景】：
 ${backgroundContext}
 
-请在此分支下，直接以【线下小说体裁】（第三人称叙述角色 ${charName}，第二人称“你”代指用户）撰写第一幕开局起承。
-要求：文笔细腻、情节自然、注重内心变化，不要输出任何旁白与多余释义，直接开启正文描写，字数在400字左右。`;
+请在此分支下，直接以【线下小说体裁】撰写第一幕开局起承。
+【强制禁令】：严禁代替“你”（用户）做出任何主动意志决定、具体的肢体动作描写、神态心理解说或输出任何台词！你只能描写角色 ${charName} 的行为、语言、表情、动作、心理活动以及周围环境的发展演进，给用户预留自由反应、回应与决定的空间。
+要求：文笔唯美细腻，不要包含旁白与多余说明，直接开始正文描写，字数在400字左右。`;
 
           const response = await currentRoche.ai.chat({
             messages: [
@@ -572,7 +595,6 @@ ${backgroundContext}
     }
 
     // --- 2. 续约页事件 ---
-    // 点击进行中的卡片：进入续写状态
     const activeIfCards = pluginContainer.querySelectorAll(".se-active-if-card");
     activeIfCards.forEach(card => {
       card.onclick = () => {
@@ -610,6 +632,19 @@ ${backgroundContext}
       };
     }
 
+    // 键盘支持：回车键直接发送
+    const chatInput = pluginContainer.querySelector("#chat-input");
+    if (chatInput) {
+      chatInput.onkeydown = (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          const sendBtn = pluginContainer.querySelector("#btn-send-msg");
+          if (sendBtn) sendBtn.click();
+        }
+      };
+    }
+
+    // 点击发送输入：文本即时上屏，并重新 render
     const btnSendMsg = pluginContainer.querySelector("#btn-send-msg");
     if (btnSendMsg) {
       btnSendMsg.onclick = async () => {
@@ -627,7 +662,7 @@ ${backgroundContext}
 
         inputEl.value = "";
         await savePluginState();
-        render();
+        render(); // 输入上屏重新渲染
       };
     }
 
@@ -663,8 +698,9 @@ ${wbCombined}
 【剧情与对话往期历史】：
 ${historyText}
 
-请在当前“线上对话”模式下，以【第一人称】口吻撰写你作为角色 ${currentIf.charName} 此时此刻最符合人设的对话回复。直接输出台词回复，不要输出任何旁白或动作动作。`;
+请在当前“线上对话”模式下，以【第一人称】口吻撰写你作为角色 ${currentIf.charName} 此时此刻最符合人设的对话回复。直接输出角色的台词话语，严禁夹带任何旁白描写或代答。`;
           } else {
+            // 线下 Prompt：强化禁止越权控制和自由反应限制
             systemPrompt = `你是一个高级的小说剧情续写引擎。正在为角色 ${currentIf.charName} 与用户共同编写分支剧情。
 【设定时间】：${currentIf.time}
 【设定基调】：${currentIf.tone}
@@ -677,7 +713,8 @@ ${wbCombined}
 ${historyText}
 
 请在当前“线下叙事”模式下，继续编写下一阶段的小说长文故事推进。
-要求：使用第三人称指代 ${currentIf.charName}，第二人称“你”指代用户。进行深度的情景叙事，推进你们的关系。不要输出任何题外话或前言旁白。`;
+【强制禁令】：严禁代替“你”（用户）做出任何具体的行为动作、神态描写、言语台词、意志选择或内心活动描述！你只能描写角色 ${currentIf.charName} 的肢体行动、言语对答、情绪神态、内心世界、以及物理环境和情景局势的变化推进，必须把做出反应和自由发声的空间留给用户。
+要求：直接输出续写正文，绝对不要输出任何旁白或释义说明。`;
           }
 
           const response = await currentRoche.ai.chat({
@@ -732,7 +769,6 @@ ${historyText}
       };
     }
 
-    // 勾选世界书挂载
     const wbCheckboxes = pluginContainer.querySelectorAll(".wb-checkbox");
     wbCheckboxes.forEach(cb => {
       cb.onchange = async () => {
@@ -747,7 +783,6 @@ ${historyText}
       };
     });
 
-    // 跨段总结
     const btnGenSummary = pluginContainer.querySelector("#btn-gen-summary");
     if (btnGenSummary) {
       btnGenSummary.onclick = async () => {
@@ -795,7 +830,6 @@ ${historyText}
       };
     }
 
-    // 结束此 IF 线并归档
     const btnEndIf = pluginContainer.querySelector("#btn-end-if");
     if (btnEndIf) {
       btnEndIf.onclick = async () => {
@@ -822,7 +856,6 @@ ${historyText}
     }
 
     // --- 3. 后台归档页事件 ---
-    // 点击已结束的卡片：进入记录查看
     const endedIfCards = pluginContainer.querySelectorAll(".se-ended-if-card");
     endedIfCards.forEach(card => {
       card.onclick = () => {
@@ -839,7 +872,6 @@ ${historyText}
       };
     }
 
-    // 生成总结并注入主记忆
     const btnInjectMainMem = pluginContainer.querySelector("#btn-inject-main-mem");
     if (btnInjectMainMem) {
       btnInjectMainMem.onclick = async () => {
@@ -902,11 +934,10 @@ ${fullHistory}`
     }
   }
 
-  // 注册到 Roche 宿主
   window.RochePlugin.register({
     id: "roche-story-engine",
     name: "剧情引擎",
-    version: "1.0.1",
+    version: "1.0.2",
     apps: [
       {
         id: "roche-story-engine-home",
@@ -917,25 +948,25 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态插入温和浅色调样式表
+          // 1. 动态注入全新轻盈且适应高长宽视口的护眼样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
             styleEl = document.createElement("style");
             styleEl.id = styleId;
             styleEl.innerHTML = `
-              /* 护眼现代明亮色系样式表，温和无刺眼对比 */
+              /* 护眼、大面积使用轻灵柔和明亮风格 */
               .roche-plugin-story-engine {
-                --se-bg: #f8fafc; /* 优雅柔和石板灰 */
-                --se-surface: #ffffff; /* 纯白面板 */
-                --se-border: #e2e8f0; /* 细腻浅灰边框 */
-                --se-text: #0f172a; /* 深 slate 灰文本 */
-                --se-text-muted: #64748b; /* 优雅中灰文本 */
-                --se-primary: #4f46e5; /* 靛蓝主色 */
+                --se-bg: #f8fafc; 
+                --se-surface: #ffffff; 
+                --se-border: #e2e8f0; 
+                --se-text: #0f172a; 
+                --se-text-muted: #64748b; 
+                --se-primary: #4f46e5; 
                 --se-primary-hover: #4338ca; 
                 --se-danger: #ef4444; 
                 --se-success: #10b981;
-                --se-input-bg: #f1f5f9; /* 浅输入框背景 */
+                --se-input-bg: #f1f5f9;
                 
                 display: flex;
                 flex-direction: column;
@@ -977,6 +1008,14 @@ ${fullHistory}`
                 flex: 1;
                 overflow-y: auto;
                 padding: 16px;
+                display: flex;
+                flex-direction: column;
+              }
+
+              /* 沉浸式全屏布局（子页面自适应） */
+              .se-main-full {
+                padding: 0 !important;
+                height: 100% !important;
                 display: flex;
                 flex-direction: column;
               }
@@ -1050,7 +1089,7 @@ ${fullHistory}`
                 color: var(--se-text-muted);
               }
 
-              /* IF 卡片（进行中 & 已归档） */
+              /* IF 卡片 */
               .se-active-if-card, .se-ended-if-card {
                 padding: 16px;
                 border: 1px solid var(--se-border);
@@ -1081,11 +1120,13 @@ ${fullHistory}`
                 line-height: 1.4;
               }
 
-              /* 表单 */
+              /* 表单框架自适应（无外页头时的贴边内衬） */
               .se-form-container {
                 display: flex;
                 flex-direction: column;
                 height: 100%;
+                padding: 16px;
+                background-color: var(--se-bg);
               }
               .se-form-header {
                 display: flex;
@@ -1137,8 +1178,9 @@ ${fullHistory}`
                 align-items: center;
                 justify-content: space-between;
                 border-bottom: 1px solid var(--se-border);
-                padding-bottom: 12px;
-                margin-bottom: 12px;
+                background-color: var(--se-surface);
+                padding: 14px 16px;
+                box-shadow: 0 1px 2px rgba(0,0,0,0.01);
               }
               .se-chat-title-wrapper {
                 display: flex;
@@ -1172,21 +1214,25 @@ ${fullHistory}`
                 color: var(--se-text);
                 box-shadow: 0 1px 2px rgba(0,0,0,0.05);
               }
+
+              /* 聊天滚动容器 */
               .se-chat-messages {
                 flex: 1;
                 overflow-y: auto;
                 display: flex;
                 flex-direction: column;
                 gap: 16px;
-                padding-right: 4px;
-                margin-bottom: 12px;
+                padding: 16px;
               }
 
-              /* 线上气泡样式 */
+              /* 线上：仿微信极简对讲风格（干净、温润、无多余投影） */
+              .se-chat-viewport-wechat {
+                background-color: #ededed !important; /* 经典微信浅灰 */
+              }
               .se-bubble-wrapper {
                 display: flex;
                 flex-direction: column;
-                max-width: 80%;
+                max-width: 85%;
               }
               .se-bubble-right {
                 align-self: flex-end;
@@ -1203,25 +1249,27 @@ ${fullHistory}`
               }
               .se-bubble-num {
                 font-size: 10px;
-                opacity: 0.6;
+                opacity: 0.5;
               }
               .se-bubble-box {
-                background-color: var(--se-surface);
-                border: 1px solid var(--se-border);
                 padding: 10px 14px;
-                border-radius: 12px;
-                font-size: 14px;
+                border-radius: 8px;
+                font-size: 14.5px;
                 line-height: 1.5;
                 word-break: break-all;
-                box-shadow: 0 1px 2px rgba(0,0,0,0.02);
+              }
+              .se-bubble-left .se-bubble-box {
+                background-color: #ffffff;
+                color: #191919;
+                border: 1px solid #e1e1e1;
               }
               .se-bubble-right .se-bubble-box {
-                background-color: var(--se-primary);
-                border-color: var(--se-primary);
-                color: #ffffff;
+                background-color: #95ec69; /* 微信绿 */
+                color: #191919;
+                border: 1px solid #83d45a;
               }
 
-              /* 线下文学创作样式 */
+              /* 线下：原厂叙事文学样式 */
               .se-narrative-block {
                 padding: 16px;
                 background-color: #f1f5f9;
@@ -1243,30 +1291,57 @@ ${fullHistory}`
                 letter-spacing: 0.5px;
               }
 
+              /* 线下：用户大纲行动指引框样式 */
+              .se-narrative-block-user {
+                padding: 14px 16px;
+                background-color: #f8fafc;
+                border-left: 3px dashed #94a3b8;
+                margin: 4px 0;
+                border-radius: 0 8px 8px 0;
+              }
+              .se-narrative-block-user .se-narrative-meta {
+                color: #64748b;
+                font-size: 11px;
+                margin-bottom: 8px;
+                font-weight: 600;
+              }
+              .se-narrative-block-user .se-narrative-text {
+                font-family: system-ui, sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+                color: #475569;
+                font-style: italic;
+              }
+
               /* 底部输入框 */
               .se-chat-footer {
                 display: flex;
                 flex-direction: column;
                 gap: 8px;
                 border-top: 1px solid var(--se-border);
-                padding-top: 12px;
+                background-color: var(--se-surface);
+                padding: 12px 16px;
               }
               .se-chat-footer textarea {
-                background-color: var(--se-surface);
+                background-color: var(--se-bg);
                 border: 1px solid var(--se-border);
                 border-radius: 6px;
                 padding: 10px;
                 color: var(--se-text);
-                font-size: 13px;
+                font-size: 13.5px;
                 resize: none;
                 outline: none;
+              }
+              .se-chat-footer textarea:focus {
+                border-color: var(--se-primary);
+                background-color: #fff;
               }
               .se-chat-footer-actions {
                 display: flex;
                 gap: 8px;
               }
 
-              /* 按钮 */
+              /* 极简基础按钮 */
               .se-btn-primary, .se-btn-secondary, .se-btn-danger {
                 padding: 10px 16px;
                 font-size: 13px;
@@ -1354,10 +1429,7 @@ ${fullHistory}`
             document.head.appendChild(styleEl);
           }
 
-          // 2. 静默载入已保存的数据（不再自动同步）
           await loadPluginState();
-
-          // 3. 初始首屏渲染
           render();
         },
         async unmount(container, roche) {
@@ -1367,7 +1439,6 @@ ${fullHistory}`
           currentRoche = null;
           pluginContainer = null;
 
-          // 销毁并移除临时注入的浅色护眼样式
           const styleEl = document.getElementById("se-plugin-style");
           if (styleEl) styleEl.remove();
         }
