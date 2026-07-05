@@ -115,7 +115,7 @@
     if (state.activeTab === "select") {
       if (state.selectedConvoIdForNew) {
         const convo = state.conversations.find(c => c.id === state.selectedConvoIdForNew);
-        const name = convo ? (convo.title || convo.name || "未知对话") : "当前对话";
+        const name = convo ? (convo.title || convo.name || "当前对话") : "当前对话";
         mainContentHtml = `
           <div class="se-form-container">
             <div class="se-form-header">
@@ -259,11 +259,11 @@
                 <div class="se-form-row">
                   <div class="se-form-group">
                     <label>最少生成字数</label>
-                    <input type="number" id="detail-snapshot-time" value="${currentIf.snapshotMinWords || 300}" placeholder="默认 300" />
+                    <input type="number" id="detail-min-words" value="${currentIf.minWords || 300}" placeholder="默认 300" />
                   </div>
                   <div class="se-form-group">
                     <label>最多生成字数</label>
-                    <input type="number" id="detail-max-words" value="${currentIf.snapshotMaxWords || 500}" placeholder="例如 500" />
+                    <input type="number" id="detail-max-words" value="${currentIf.maxWords || 600}" placeholder="默认 600" />
                   </div>
                 </div>
 
@@ -394,7 +394,7 @@
                 ${msgListHtml}
               </div>
 
-              <!-- 重构后的自适应输入框结构，按钮在右侧横排缩微呈现 -->
+              <!-- 重构后的自适应输入框结构 -->
               <div class="se-chat-footer-reconstructed">
                 <textarea id="chat-input" placeholder="${currentIf.mode === "online" ? "输入消息发送..." : "输入叙事段落指令..."}" rows="1"></textarea>
                 <div class="se-chat-footer-buttons-aside">
@@ -664,7 +664,8 @@
           const convo = state.conversations.find(c => c.id === convoId);
           const charName = convo ? (convo.title || convo.name || "神秘角色") : "神秘角色";
 
-          // ==================== 快照冻结收集 ====================
+          // ==================== 冻结快照收集 (精确绑定会话对应的 User 人设，杜绝 OOC) ====================
+          // 1. 获取主线角色人设 (Persona/Bio)
           let charPersona = "";
           let charBio = "";
           try {
@@ -680,16 +681,25 @@
           }
           const finalCharPersona = charPersona || charBio || "保持其一贯性格特点。";
 
+          // 2. 精确获取该对话对应的专属 User 人设 (修复全局漂移 Bug) [1]
           let userPersona = "";
           try {
-            const activeUser = await currentRoche.persona.getActiveUserPersona();
-            if (activeUser) {
-              userPersona = activeUser.persona || activeUser.bio || "";
+            const users = await currentRoche.persona.getUserPersonas() || []; [1]
+            let targetedUser = null;
+            if (convo && convo.myActivePersonaId) { [1]
+              targetedUser = users.find(u => u.id === convo.myActivePersonaId); [1]
+            }
+            if (!targetedUser) {
+              targetedUser = await currentRoche.persona.getActiveUserPersona(); [1]
+            }
+            if (targetedUser) {
+              userPersona = targetedUser.persona || targetedUser.bio || "";
             }
           } catch (e) {
-            console.error("Snapshot user persona failed:", e);
+            console.error("Snapshot targeted user persona failed:", e);
           }
 
+          // 3. 获取主线长期记忆
           let coreMemory = "无核心记忆总结";
           let factsListText = "无主线主记忆事实";
           try {
@@ -702,6 +712,7 @@
             console.error("Snapshot memories failed:", e);
           }
 
+          // 4. 获取主线最近 20 条短上下文
           let mainConvoContext = "";
           try {
             const st = await currentRoche.memory.getShortTerm({ conversationId: convoId, limit: 20 });
@@ -722,6 +733,7 @@
             factsList: factsListText,
             mainConvoContext: mainConvoContext
           };
+          // ==================== 冻结快照固化完成 ====================
 
           const longTermText = `【核心主线记忆背景】：${coreMemory}\n【重要主线事实】：\n${factsListText}`;
 
@@ -836,7 +848,7 @@ ${mainConvoContext}
       };
     }
 
-    // 双击消息事件委托处理器
+    // 双击消息事件委托
     const scrollBox = pluginContainer.querySelector("#chat-messages-scroll");
     if (scrollBox) {
       scrollBox.ondblclick = (e) => {
@@ -1004,20 +1016,16 @@ ${mainConvoContext}
       };
     }
 
-    // 重构输入键盘Enter换行逻辑
     const chatInput = pluginContainer.querySelector("#chat-input");
     if (chatInput) {
       const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
       chatInput.onkeydown = (e) => {
         if (currentIf && currentIf.mode === "online") {
-          // 线上模式：回车直接上屏（仿微信）
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             const sendBtn = pluginContainer.querySelector("#btn-send-msg");
             if (sendBtn) sendBtn.click();
           }
-        } else {
-          // 线下叙事：回车作为天然换行符，不会触发上屏
         }
       };
     }
@@ -1053,7 +1061,7 @@ ${mainConvoContext}
         render();
 
         try {
-          // ==================== 冻结快照绝对防御 ====================
+          // ==================== 冻结快照绝对沙盒 ====================
           const snapshot = currentIf.snapshot || {
             charPersona: "保持其一贯性格特点。",
             userPersona: "",
@@ -1063,7 +1071,7 @@ ${mainConvoContext}
           };
 
           const finalCharPersona = snapshot.charPersona;
-          const userPersona = snapshot.userPersona;
+          const userPersona = snapshot.userPersona; // 完美固化了该会话下专属的 User 人设
           const longTermText = `【核心主线记忆背景】：${snapshot.coreMemory}\n【重要主线事实】：\n${snapshot.factsList}`;
           const mainConvoContext = snapshot.mainConvoContext;
 
@@ -1094,7 +1102,6 @@ ${mainConvoContext}
 
 【当前IF线的基础设定】：
 【设定时间】：${currentIf.time}
-// 系统合并当前绝对时间 2026 年
 【当下绝对时间标尺】：2026年
 【设定基调】：${currentIf.tone}
 【额外强制指令】：${currentIf.extra}
@@ -1114,7 +1121,6 @@ ${historyText}
 
 严禁合并成大段话！必须输出用 [SPLIT] 隔开的连贯简短台词。严格保证角色人设本音，杜绝任何OOC行为。绝不携带叙事旁白或解释说明。`;
           } else {
-            // 线下续写 Prompt：引入字数区间强约束强提醒
             const minWords = currentIf.minWords || 300;
             const maxWords = currentIf.maxWords || 600;
 
@@ -1243,8 +1249,7 @@ ${historyText}
       };
     });
 
-    // 详情页监听：线下字数区间变更
-    const detailMinWords = pluginContainer.querySelector("#detail-snapshot-time");
+    const detailMinWords = pluginContainer.querySelector("#detail-min-words");
     const detailMaxWords = pluginContainer.querySelector("#detail-max-words");
     if (detailMinWords && detailMaxWords) {
       const currentIf = state.activeIfLines.find(x => x.id === state.currentIfLineId);
@@ -1259,7 +1264,6 @@ ${historyText}
       detailMaxWords.onchange = saveWords;
     }
 
-    // 详情页操作：物理删除当前 IF 线
     const btnDeleteActiveIf = pluginContainer.querySelector("#btn-delete-active-if");
     if (btnDeleteActiveIf) {
       btnDeleteActiveIf.onclick = async () => {
@@ -1431,7 +1435,6 @@ ${historyText}
       };
     }
 
-    // 后台页操作：物理删除已结束的 IF 线
     const btnDeleteEndedIf = pluginContainer.querySelector("#btn-delete-ended-if");
     if (btnDeleteEndedIf) {
       btnDeleteEndedIf.onclick = async () => {
@@ -1526,7 +1529,7 @@ ${fullHistory}`
           currentRoche = roche;
           pluginContainer = container;
 
-          // 1. 动态注入自适应样式
+          // 1. 动态注入自适应样式表
           const styleId = "se-plugin-style";
           let styleEl = document.getElementById(styleId);
           if (!styleEl) {
@@ -2006,7 +2009,7 @@ ${fullHistory}`
                 border-radius: 8px;
               }
 
-              /* 时空记忆快照 */
+              /* 时空快照可视化 */
               .se-snapshot-visualizer {
                 display: flex;
                 flex-direction: column;
